@@ -5,12 +5,12 @@ help(package ="dada2")
 
 
 # output folder
-output_folder <- "primer_clipped_reads_22_250250_pool"
+output_folder <- "primer_clipped_reads_22_220240_pool"
 dir.create(paste0(paste0("output/", output_folder)))
 # filtering
 ees <- c(2,2)
 # trimming
-totrim <- c(250,250)
+totrim <- c(220,240)
 
 # path to combined reads
 path <- "../data/primer_clipped_reads/"
@@ -25,8 +25,8 @@ temp_names <- sapply(strsplit(basename(fnFs), "-"), `[`, 7)
 sample_names <- sapply(strsplit(temp_names, "_"), `[`, 1) 
 
 # quality
-plotQualityProfile(fnFs[1:2])
-plotQualityProfile(fnRs[1:2])
+plotQualityProfile(fnFs[1:12])
+plotQualityProfile(fnRs[1:12])
 
 # filtering and trimming
 filt_path <- file.path(path, "filtered")
@@ -34,7 +34,7 @@ filtFs <- file.path(filt_path, paste0(sample_names, "_F_filt.fastq.gz"))
 filtRs <- file.path(filt_path, paste0(sample_names, "_R_filt.fastq.gz"))
 
 # filter
-out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen = c(250,250),
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen = totrim,
                      maxN = 0, maxEE = ees, truncQ = 2, rm.phix = TRUE,
                      compress = TRUE, multithread = TRUE)
 head(out)

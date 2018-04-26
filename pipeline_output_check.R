@@ -1,13 +1,14 @@
 # check pipeline output
 
 # input folder
-input_folder <- "primer_clipped_reads_22_250250_pool"
+input_folder <- "primer_clipped_reads_22_220250_pool"
 # load taxa and RSV table
 load(paste0("output/", input_folder, "/taxa.RData"))
 load(paste0("output/", input_folder, "/seqtab.RData"))
 load(paste0("output/", input_folder, "/track.RData"))
 
 head(track)
+
 # check taxa
 taxa_print <- taxa # Removing sequence rownames for display only
 rownames(taxa_print) <- NULL

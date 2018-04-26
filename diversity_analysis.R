@@ -17,6 +17,9 @@ library(dada2)
 library(phangorn)
 library(purrr)
 library(related)
+library(forcats)
+library(wesanderson)
+source("martin.R")
 # todo: filter fecal sample or let it in!
 
 
@@ -49,14 +52,31 @@ nes_sampling <- read_xlsx("../data/sampling_data_processed.xlsx") %>%
 
 
 # join to nes_df to get the right sample sequence
-nes <- left_join(nes_df, nes_sampling, by = "id")
+nes <- left_join(nes_df, nes_sampling, by = "id") %>% 
+          arrange(timepoint) %>% 
+          mutate(id = fct_inorder(id))
+          
+          
 #which(nes$id == "17BEMa11Fec")
 # rownames have to match SVG table
 rownames(nes) <- nes$id 
 
+# add birth territory variable
+impute_birth_territory <- function(row_num, df){
+  sample_row <- df[row_num, ]
+  if (str_detect(as.character(sample_row$id), "T")){
+    sample_row$birth_territory <- as.factor(df[stringr::str_replace(sample_row$id,"T[2,3]", ""), "territory"])
+  } else {
+    sample_row$birth_territory <- as.factor(sample_row$territory)
+  }
+  sample_row
+}
+nes2 <- bind_rows(lapply(1:nrow(nes), impute_birth_territory, nes))
+rownames(nes2) <- nes2$id 
+
 # create phyloseq object
 ps <- phyloseq(otu_table(seqtab_nochim, taxa_are_rows = FALSE), 
-               sample_data(nes), 
+               sample_data(nes2), 
                tax_table(taxa),
                phy_tree(fitGTR$tree))
 
@@ -64,13 +84,19 @@ ps <- phyloseq(otu_table(seqtab_nochim, taxa_are_rows = FALSE),
 ps <- subset_samples(ps, id != "17BEMa11Fec")
 
 # plotting abundances
-plot_bar(ps, fill = "Phylum")
+plot_bar(ps, fill = "Phylum", x = "id")
 # plot top twenty
-top20 <- names(sort(taxa_sums(ps), decreasing = TRUE))[1:20]
+top20 <- names(sort(taxa_sums(ps), decreasing = TRUE))[1:50]
 # ps_top20 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
 ps_top20 <- prune_taxa(top20, ps)
-plot_bar(ps_top20, fill="Family")
+plot_bar(ps_top20, fill="Phylum", x = "id") +
+  scale_y_sqrt()
 
+top20 <- names(sort(taxa_sums(ps_rel), decreasing = TRUE))[1:20]
+# ps_top20 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
+ps_top20 <- prune_taxa(top20, ps_rel)
+plot_bar(ps_top20, fill="Order", x = "id") +
+  ggtitle("20 most abundant ASVs across samples")
 # overview over phyloseq options -----------------------------------------------
 #ps
 #ntaxa(ps)
@@ -78,11 +104,15 @@ plot_bar(ps_top20, fill="Family")
 #sample_names(ps)[1:5]
 #rank_names(ps)
 #sample_variables(ps)
-#otu_table(ps)[1:3, 1:3]
+# #otu_table(ps)[1:3, 1:3]
 #tax_table(ps)[1:5, 1:5]
 #taxa_names(ps)[1]
 
 # prevalence filtering ---------------------------------------------------------
+# which samples have low abundance?
+sort(sample_sums(ps))
+# ps <- prune_samples(sample_sums(ps) >= 600, ps)
+
 # in the dataset, which we will define here as the number of samples 
 # in which a taxon appears at least once.
 # Compute prevalence of each feature, store as data.frame
@@ -104,11 +134,11 @@ sort(table(prevdf$Phylum, useNA = "always"), decreasing = TRUE) # 11 unidentifie
 # checked that the abundant phyla were found in other species too
 # cut off everything <11
 sort(table(prevdf$Phylum))
-keepPhyla <- table(prevdf$Phylum)[(table(prevdf$Phylum) > 11)]
+keepPhyla <- table(prevdf$Phylum)[(table(prevdf$Phylum) > 5)]
 prevdf1 <- subset(prevdf, Phylum %in% names(keepPhyla))
 
-# Keep taxa when appearing in minimum 3% samples
-prevalenceThreshold <- 0.03 * nsamples(ps)
+# Keep taxa when appearing in minimum 2% samples
+prevalenceThreshold <- 0.02 * nsamples(ps)
 prevalenceThreshold
 
 # execute prevalence filter 
@@ -118,12 +148,13 @@ ps1
 # filter entries with unidentified phylum
 ps2 <- subset_taxa(ps1, Phylum %in% names(keepPhyla))
 
-ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
+ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Class)) +
   geom_hline(yintercept = prevalenceThreshold, alpha = 0.5, linetype = 2) +
-  geom_point(size = 2, alpha = 0.7) +
+  geom_point(size = 2, alpha = 0.6) +
   scale_y_log10() + scale_x_log10() +
   xlab("Total Abundance") +
-  facet_wrap(~Phylum)
+  facet_wrap(~Phylum) +
+  ggtitle("Abundance by Phylum")
 
 
 # plot Abundances and potentially transform ------------------------------------
@@ -150,8 +181,64 @@ plot_abundance = function(physeq, ylabn = "",
 }
 plot_abundance(ps2)
 
+# define some extra variables --------------------------------------------------
+# mark low abundance samples and impute birth territory
+sample_data(ps2) <- sample_data(ps2) %>% 
+  mutate(abundance = sample_sums(ps2) < 5000) 
+
+
+# ordination -------------------------------------------------------------------
+# Transform to relative abundance. Save as new object.
+ps_rel <- transform_sample_counts(ps2, function(x){x / sum(x)})
+ps_rel <- transform_sample_counts(ps2, function(x) log(x + 1))
+ps_ord <- ordinate(ps_rel, "NMDS", "bray")
+# plot taxa
+# plot_ordination(ps_rel, ps_ord, type="taxa", color="Phylum", title="taxa")
+# plot samples
+colpal <- c(  "#0000ff", "#ffb14e", "#ea5f94"  )
+colpal <- wes_palette("Moonrise2", 3, type = "discrete")      
+
+p1 <- plot_ordination(ps_rel, ps_ord, type="samples", color="abundance", shape = "sex") 
+p1 +
+  theme_martin() +
+  theme(panel.grid = element_blank()) +
+  scale_shape_manual(values = c(19,17))+
+  geom_point(size = 3, alpha = 1) +
+  scale_color_manual(values = colpal) +
+  ggtitle("abundance < 5000 reads")
+
+#p1 + geom_polygon(aes(fill=timepoint)) + geom_point(size=5) + ggtitle("samples")
+
+plot_richness_estimates(ps, x = "timepoint", measure = c("Shannon", "Simpson", "InvSimpson")) +
+  geom_boxplot() +
+  theme_martin() +
+  theme(panel.grid = element_blank()) 
+
+# try variance-stabilising transformation Now perform the variance-stabilizing transformation and replace the original OTU abundances in a copy of GP with them. We'll call the copy GPvst.
+# Use `~1` as the experimental design so that the actual design doesn't
+# influence your tranformation.
+ps_sd <- phyloseq_to_deseq2(ps2, ~1)
+ps_sd <- estimateSizeFactors(ps_sd)
+ps_sd <- estimateDispersions(ps_sd, fitType = "local")
+
+ps_vst <- ps2
+otu_table(ps_vst) <- otu_table(getVarianceStabilizedData(ps_sd), taxa_are_rows = TRUE)
+plot_ordination(ps_vst, ordinate(ps_vst, "NMDS", "bray"), color="timepoint", shape = "sex")+
+  theme_martin() +
+  theme(panel.grid = element_blank()) +
+  scale_shape_manual(values = c(19,17))+
+  geom_point(size = 3, alpha = 1) +
+  scale_color_manual(values = colpal)
+
+ps_rl <- ps2
+rld <- rlog(ps_sd, blind = FALSE)
+rownames(rld) <- taxa_names(ps2)
+otu_table(ps_rl) <- otu_table(rld, taxa_are_rows = TRUE)
+plot_ordination(rld, ordinate(Grld, "NMDS", "bray"), color = "SampleType")
+
+
 # deseq2 analysis --------------------------------------------------------------
-timedds <- phyloseq_to_deseq2(ps2, ~ sex)
+timedds <- phyloseq_to_deseq2(ps2, ~ timepoint)
 timedds <- DESeq(timedds, test="Wald", fitType="parametric")
 res <- results(timedds, cooksCutoff = FALSE)
 alpha <- 0.01
@@ -174,7 +261,8 @@ x <- sort(x, TRUE)
 sigtab$Genus <- factor(as.character(sigtab$Genus), levels=names(x))
 
 ggplot(sigtab, aes(x=Genus, y=log2FoldChange, color=Phylum)) + geom_point(size=3) + 
-  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5))
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  ggtitle("Sex differences")
 
 # preprocessing 
 
