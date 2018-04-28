@@ -5,12 +5,12 @@ help(package ="dada2")
 
 
 # output folder
-output_folder <- "primer_clipped_reads_22_220240_pool"
+output_folder <- "primer_clipped_reads_11_220230_pool"
 dir.create(paste0(paste0("output/", output_folder)))
 # filtering
-ees <- c(2,2)
+ees <- c(1,1)
 # trimming
-totrim <- c(220,240)
+totrim <- c(220,230) #220,230
 
 # path to combined reads
 path <- "../data/primer_clipped_reads/"
@@ -63,7 +63,9 @@ dadaFs[[1]]
 
 # merge the denoised forward and reverse reads
 mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose = TRUE)
-head(mergers[[1]])
+mergers[[1]]
+
+class(mergers)
 
 # sequence table
 seqtab <- makeSequenceTable(mergers)
@@ -73,7 +75,7 @@ dim(seqtab)
 table(nchar(getSequences(seqtab)))
 
 # cut sequences that are too short
-seqtab2 <- seqtab[,nchar(colnames(seqtab)) %in% seq(400,461)]
+seqtab2 <- seqtab[,nchar(colnames(seqtab)) %in% seq(380,450)]
 
 # remove chimeras
 seqtab_nochim <- removeBimeraDenovo(seqtab2, method="consensus", multithread=TRUE, verbose=TRUE)

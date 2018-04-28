@@ -21,13 +21,13 @@ library(forcats)
 library(wesanderson)
 source("martin.R")
 # todo: filter fecal sample or let it in!
-
+#library(microbiomeSeq)  #load the package
 
 # Prepare and load data --------------------------------------------------------
 
 # input folder
-# input_folder <- "combined_reads_1_nopool"
-input_folder <- "primer_clipped_reads_22_250250_pool"
+input_folder <- "primer_clipped_reads_22_220230_pool"
+#input_folder <- "primer_clipped_reads_44_250250_pool"
 # load taxa and RSV table
 load(paste0("output/", input_folder, "/taxa.RData"))
 load(paste0("output/", input_folder, "/seqtab.RData"))
@@ -77,8 +77,8 @@ rownames(nes2) <- nes2$id
 # create phyloseq object
 ps <- phyloseq(otu_table(seqtab_nochim, taxa_are_rows = FALSE), 
                sample_data(nes2), 
-               tax_table(taxa),
-               phy_tree(fitGTR$tree))
+               tax_table(taxa))
+               #phy_tree(fitGTR$tree))
 
 # filter out fecal sample
 ps <- subset_samples(ps, id != "17BEMa11Fec")
@@ -108,7 +108,10 @@ plot_bar(ps_top20, fill="Order", x = "id") +
 #tax_table(ps)[1:5, 1:5]
 #taxa_names(ps)[1]
 
-# prevalence filtering ---------------------------------------------------------
+# filtering ---------------------------------------------------------
+plot(sort(taxa_sums(ps), TRUE), type="h", ylim=c(0, 100))
+ps <- prune_taxa(taxa_sums(ps) > 40, ps) 
+
 # which samples have low abundance?
 sort(sample_sums(ps))
 # ps <- prune_samples(sample_sums(ps) >= 600, ps)
@@ -134,11 +137,11 @@ sort(table(prevdf$Phylum, useNA = "always"), decreasing = TRUE) # 11 unidentifie
 # checked that the abundant phyla were found in other species too
 # cut off everything <11
 sort(table(prevdf$Phylum))
-keepPhyla <- table(prevdf$Phylum)[(table(prevdf$Phylum) > 5)]
+keepPhyla <- table(prevdf$Phylum)[(table(prevdf$Phylum) > 4)]
 prevdf1 <- subset(prevdf, Phylum %in% names(keepPhyla))
 
 # Keep taxa when appearing in minimum 2% samples
-prevalenceThreshold <- 0.02 * nsamples(ps)
+prevalenceThreshold <- 0.04 * nsamples(ps)
 prevalenceThreshold
 
 # execute prevalence filter 
@@ -148,7 +151,7 @@ ps1
 # filter entries with unidentified phylum
 ps2 <- subset_taxa(ps1, Phylum %in% names(keepPhyla))
 
-ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Class)) +
+ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
   geom_hline(yintercept = prevalenceThreshold, alpha = 0.5, linetype = 2) +
   geom_point(size = 2, alpha = 0.6) +
   scale_y_log10() + scale_x_log10() +
@@ -191,6 +194,7 @@ sample_data(ps2) <- sample_data(ps2) %>%
 # Transform to relative abundance. Save as new object.
 ps_rel <- transform_sample_counts(ps2, function(x){x / sum(x)})
 ps_rel <- transform_sample_counts(ps2, function(x) log(x + 1))
+ps_rel <- transform_sample_counts(ps2, function(x) log(x + 1) / sum(log(x+1)))
 ps_ord <- ordinate(ps_rel, "NMDS", "bray")
 # plot taxa
 # plot_ordination(ps_rel, ps_ord, type="taxa", color="Phylum", title="taxa")
@@ -198,18 +202,18 @@ ps_ord <- ordinate(ps_rel, "NMDS", "bray")
 colpal <- c(  "#0000ff", "#ffb14e", "#ea5f94"  )
 colpal <- wes_palette("Moonrise2", 3, type = "discrete")      
 
-p1 <- plot_ordination(ps_rel, ps_ord, type="samples", color="abundance", shape = "sex") 
+p1 <- plot_ordination(ps_rel, ps_ord, type="samples", color="timepoint", shape = "sex") 
 p1 +
   theme_martin() +
   theme(panel.grid = element_blank()) +
   scale_shape_manual(values = c(19,17))+
   geom_point(size = 3, alpha = 1) +
-  scale_color_manual(values = colpal) +
-  ggtitle("abundance < 5000 reads")
+  scale_color_manual(values = colpal) #+
+  #ggtitle("abundance < 5000 reads")
 
 #p1 + geom_polygon(aes(fill=timepoint)) + geom_point(size=5) + ggtitle("samples")
 
-plot_richness_estimates(ps, x = "timepoint", measure = c("Shannon", "Simpson", "InvSimpson")) +
+plot_richness_estimates(ps, x = "timepoint", color = "sex", measure = c("Shannon", "Simpson", "InvSimpson")) +
   geom_boxplot() +
   theme_martin() +
   theme(panel.grid = element_blank()) 

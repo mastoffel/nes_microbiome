@@ -18,7 +18,7 @@ library(phangorn)
 # todo: filter fecal sample or let it in!
 
 # input folder
-input_folder <- "primer_clipped_reads_22_220250_pool"
+input_folder <- "primer_clipped_reads_22_220230_pool"
 # load taxa and RSV table
 load(paste0("output/", input_folder, "/taxa.RData"))
 load(paste0("output/", input_folder, "/seqtab.RData"))
@@ -45,5 +45,5 @@ fitGTR <- update(fit, k = 4, inv = 0.2)
 fitGTR <- optim.pml(fitGTR, model="GTR", optInv=TRUE, optGamma=TRUE,
                     rearrangement = "stochastic", control = pml.control(trace = 0))
 
-save(fitGTR, file = "../nes_microbiome/output/primer_clipped_reads_22_220250_pool/fitGTR.RData")
+save(fitGTR, file = "../nes_microbiome/output/primer_clipped_reads_22_220230_pool/fitGTR.RData")
 # detach("package:phangorn", unload=TRUE)
