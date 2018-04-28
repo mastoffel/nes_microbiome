@@ -1,7 +1,7 @@
 # check pipeline output
 
 # input folder
-input_folder <- "primer_clipped_reads_22_220250_pool"
+input_folder <- "primer_clipped_reads_11_220230_pool"
 # load taxa and RSV table
 load(paste0("output/", input_folder, "/taxa.RData"))
 load(paste0("output/", input_folder, "/seqtab.RData"))
@@ -15,8 +15,22 @@ rownames(taxa_print) <- NULL
 head(taxa_print)
 
 # check taxa
-taxa_print <- as.data.frame(taxa_print)
-table(taxa_print$Kingdom)
+taxa_print4 <- as.data.frame(taxa_print)
+
+
+# 250250
+taxa_print1 <- taxa_print
+sort(table(taxa_print1$Class), decreasing = TRUE)[1:10]
+
+# 220240
+sort(table(taxa_print2$Class), decreasing = TRUE)[1:10]
+
+# 220250
+sort(table(taxa_print3$Class), decreasing = TRUE)[1:10]
+
+# 230250
+sort(table(taxa_print4$Class), decreasing = TRUE)[1:10]
+
 # taxa_print2 <- taxa_print #[taxa_print[,1] != "Eukaryota", ]
 sum(sort(table(taxa_print[,5]), decreasing = TRUE))
 sum(sort(table(taxa_print_nopool[,5]), decreasing = TRUE))
