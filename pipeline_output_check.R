@@ -1,7 +1,7 @@
 # check pipeline output
 
 # input folder
-input_folder <- "primer_clipped_reads_22_220250_pool"
+input_folder <- "primer_clipped_reads_22_230250_pool"
 # load taxa and RSV table
 load(paste0("output/", input_folder, "/taxa.RData"))
 load(paste0("output/", input_folder, "/seqtab.RData"))
