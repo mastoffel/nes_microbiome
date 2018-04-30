@@ -21,8 +21,8 @@ library(forcats)
 library(wesanderson)
 source("martin.R")
 # todo: filter fecal sample or let it in!
-#library(microbiomeSeq)  #load the package
 
+library(microbiomeSeq)
 # Prepare and load data --------------------------------------------------------
 
 # input folder
@@ -37,7 +37,7 @@ samples_out <- rownames(seqtab_nochim)
 nes_df <- data.frame("id" = samples_out)
 
 # nes data
-nes_sampling <- read_xlsx("../data/sampling_data_processed.xlsx") %>% 
+nes_sampling <- read_xlsx("../data/processed/sampling_data_processed.xlsx") %>% 
   dplyr::rename(id = ID,
                 date = DATE,
                 territory = TERRITORY, 
@@ -195,6 +195,7 @@ sample_data(ps2) <- sample_data(ps2) %>%
 ps_rel <- transform_sample_counts(ps2, function(x){x / sum(x)})
 ps_rel <- transform_sample_counts(ps2, function(x) log(x + 1))
 ps_rel <- transform_sample_counts(ps2, function(x) log(x + 1) / sum(log(x+1)))
+ps_rel <- normalise_data(ps2, "varstab")
 ps_ord <- ordinate(ps_rel, "NMDS", "bray")
 # plot taxa
 # plot_ordination(ps_rel, ps_ord, type="taxa", color="Phylum", title="taxa")
