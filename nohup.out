@@ -26646,3 +26646,4 @@ The following object is masked from ‘package:Biostrings’:
     complement
 
 use default substitution matrix
+negative edges length changed to 0!
