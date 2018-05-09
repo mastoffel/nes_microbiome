@@ -20,18 +20,19 @@ library(related)
 library(forcats)
 library(wesanderson)
 source("martin.R")
+#library(microbiomeSeq)
 # todo: filter fecal sample or let it in!
 
-library(microbiomeSeq)
-# Prepare and load data --------------------------------------------------------
+# Prepare and load data ----------------------------------------------------------------------------
 
 # input folder
 input_folder <- "primer_clipped_reads_22_220230_pool"
-#input_folder <- "primer_clipped_reads_44_250250_pool"
+
 # load taxa and RSV table
 load(paste0("output/", input_folder, "/taxa.RData"))
 load(paste0("output/", input_folder, "/seqtab.RData"))
 load(paste0("output/", input_folder, "/fitGTR.RData"))
+
 # sample names
 samples_out <- rownames(seqtab_nochim)
 nes_df <- data.frame("id" = samples_out)
@@ -47,17 +48,16 @@ nes_sampling <- read_xlsx("../data/processed/sampling_data_processed.xlsx") %>%
   mutate(id = str_c(id, timepoint)) %>% 
   mutate(id = str_replace(id, "T1", "")) %>% 
   mutate(sex = ifelse(sex == "M", "F", "M")) %>% 
+  mutate(individual = str_replace(id, "T[2,3]", "")) %>% 
+  mutate(died = ifelse(individual %in% names(which(table(individual) < 3)), "died", "survived")) %>% 
   dplyr::select(-date) %>% 
   as.data.frame()
-
 
 # join to nes_df to get the right sample sequence
 nes <- left_join(nes_df, nes_sampling, by = "id") %>% 
           arrange(timepoint) %>% 
           mutate(id = fct_inorder(id))
-          
-          
-#which(nes$id == "17BEMa11Fec")
+
 # rownames have to match SVG table
 rownames(nes) <- nes$id 
 
@@ -77,27 +77,31 @@ rownames(nes2) <- nes2$id
 # create phyloseq object
 ps <- phyloseq(otu_table(seqtab_nochim, taxa_are_rows = FALSE), 
                sample_data(nes2), 
-               tax_table(taxa))
-               #phy_tree(fitGTR$tree))
+               tax_table(taxa),
+               phy_tree(fitGTR$tree))
 
 # filter out fecal sample
 ps <- subset_samples(ps, id != "17BEMa11Fec")
 
-# plotting abundances
-plot_bar(ps, fill = "Phylum", x = "id")
-# plot top twenty
-top20 <- names(sort(taxa_sums(ps), decreasing = TRUE))[1:50]
+
+# plotting abundances ------------------------------------------------------------------------------
+
+# plot relative abundances for all samples
+ps_abund <- transform_sample_counts(ps, function(x) x / sum(x))
+plot_bar(ps_abund, fill="Phylum", x = "id")
+
+top20 <- names(sort(taxa_sums(ps_abund), decreasing = TRUE))[1:50]
 # ps_top20 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
 ps_top20 <- prune_taxa(top20, ps)
-plot_bar(ps_top20, fill="Phylum", x = "id") +
-  scale_y_sqrt()
+plot_bar(ps_abund, fill="Class", x = "id")
 
-top20 <- names(sort(taxa_sums(ps_rel), decreasing = TRUE))[1:20]
-# ps_top20 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
-ps_top20 <- prune_taxa(top20, ps_rel)
-plot_bar(ps_top20, fill="Order", x = "id") +
-  ggtitle("20 most abundant ASVs across samples")
-# overview over phyloseq options -----------------------------------------------
+ps_abund <- transform_sample_counts(ps, function(x) x / sum(x))
+topXX <- names(sort(taxa_sums(ps_abund), decreasing = TRUE))[1:50]
+ps_top <- prune_taxa(topXX, ps_abund)
+plot_bar(ps_abund, fill="Class", x = "id", facet_grid = "sex") 
+
+
+# overview over phyloseq options -------------------------------------------------------------------
 #ps
 #ntaxa(ps)
 #nsamples(ps)
@@ -108,17 +112,19 @@ plot_bar(ps_top20, fill="Order", x = "id") +
 #tax_table(ps)[1:5, 1:5]
 #taxa_names(ps)[1]
 
-# filtering ---------------------------------------------------------
-plot(sort(taxa_sums(ps), TRUE), type="h", ylim=c(0, 100))
-ps <- prune_taxa(taxa_sums(ps) > 40, ps) 
+# filtering ----------------------------------------------------------------------------------------
 
 # which samples have low abundance?
 sort(sample_sums(ps))
-# ps <- prune_samples(sample_sums(ps) >= 600, ps)
 
-# in the dataset, which we will define here as the number of samples 
-# in which a taxon appears at least once.
-# Compute prevalence of each feature, store as data.frame
+# Kingdoms: 2791 Bacteria, 12 Eukaryota, 6 Archaea
+sort(table(prevdf$Kingdom, useNA = "always"), decreasing = TRUE)
+
+# filter Eukaryota
+ps <- subset_taxa(ps, Kingdom != "Eukaryota")
+
+# Define prevalence of each taxa
+# (in how many samples did each taxa appear at least once)
 prev0 <- apply(X = otu_table(ps),
                 MARGIN = ifelse(taxa_are_rows(ps), yes = 1, no = 2),
                 FUN = function(x){sum(x > 0)})
@@ -131,28 +137,43 @@ prevdf <- data.frame(Prevalence = prev0,
 prevdf_check <- as_tibble(prevdf)
 hist(prevdf_check$Prevalence, breaks = 100)
 
-# check out how many phyla and whether there are NAs)
+# check out how many phyla and whether there are NAs
 sort(table(prevdf$Phylum, useNA = "always"), decreasing = TRUE) # 11 unidentified Phyla --> filter
 
-# checked that the abundant phyla were found in other species too
-# cut off everything <11
+
+# prepare prevalence filtering
+
+# Spirochaetae appear and three samples and are pathogenic
 sort(table(prevdf$Phylum))
-keepPhyla <- table(prevdf$Phylum)[(table(prevdf$Phylum) > 4)]
+keepPhyla <- table(prevdf$Phylum)[(table(prevdf$Phylum) > 2)] # phylum appears minimum 3 samples
 prevdf1 <- subset(prevdf, Phylum %in% names(keepPhyla))
 
-# Keep taxa when appearing in minimum 2% samples
-prevalenceThreshold <- 0.04 * nsamples(ps)
+# Keep taxa when appearing in minimum 2% samples (3 samples)
+prevalenceThreshold <- 0.02 * nsamples(ps)
 prevalenceThreshold
 
-# execute prevalence filter 
+# FILTER 1
+# execute prevalence filter minimum 2% samples (3 samples)
 ps1 <- prune_taxa((prev0 > prevalenceThreshold), ps)
 ps1
 
-# filter entries with unidentified phylum
+# FILTER 2
+# entries with unidentified phylum and exclude phyla appearing in less than 3 samples
 ps2 <- subset_taxa(ps1, Phylum %in% names(keepPhyla))
+ps2
+sort(table(tax_table(ps2)[, "Phylum"], exclude = NULL))
+
+# FILTER 3, either of:
+
+# taxa have to have at least 20 reads
+plot(sort(taxa_sums(ps), TRUE), type="h", ylim=c(0, 100))
+
+min_reads <- 30
+ps3 <- filter_taxa(ps2, function(x) sum(x) > min_reads, TRUE)
 
 ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
   geom_hline(yintercept = prevalenceThreshold, alpha = 0.5, linetype = 2) +
+  geom_vline(xintercept = min_reads, alpha = 0.5, linetype = 2) +
   geom_point(size = 2, alpha = 0.6) +
   scale_y_log10() + scale_x_log10() +
   xlab("Total Abundance") +
@@ -160,21 +181,19 @@ ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
   ggtitle("Abundance by Phylum")
 
 
-# plot Abundances and potentially transform ------------------------------------
+# plot Abundances and potentially transform --------------------------------------------------------
 # Taxonomic agglomeration
 # How many genera are present after filtering? 135
-taxGlomRank <- "Genus"
-length(get_taxa_unique(ps2, taxonomic.rank = taxGlomRank)) 
 
-rank_names(ps2)
+rank_names(ps3)
 # Abundance value plotting
 plot_abundance = function(physeq, ylabn = "",
-                          Facet = "Order",
+                          Facet = "Genus",
                           Color = "Phylum"){
   mphyseq = psmelt(physeq)
   mphyseq <- subset(mphyseq, Abundance > 0)
   ggplot(data = mphyseq,
-         mapping = aes_string(x = "sex", y = "Abundance",
+         mapping = aes_string(x = "timepoint", y = "Abundance",
                               color = Color, fill = Color)) +
     geom_violin(fill = NA) +
     geom_point(size = 1, alpha = 0.3,
@@ -182,74 +201,341 @@ plot_abundance = function(physeq, ylabn = "",
     facet_wrap(facets = Facet) + ylab(ylabn) +
     scale_y_log10()
 }
-plot_abundance(ps2)
+plot_abundance(ps3)
 
-# define some extra variables --------------------------------------------------
+
+
+# define some extra variables ----------------------------------------------------------------------
 # mark low abundance samples and impute birth territory
-sample_data(ps2) <- sample_data(ps2) %>% 
-  mutate(abundance = sample_sums(ps2) < 5000) 
+sample_data(ps) <- sample_data(ps) %>% 
+    mutate(abundance = sample_sums(ps) < 5000) 
 
+sample_data(ps2) <- sample_data(ps3) %>% 
+  mutate(abundance = sample_sums(ps3) < 5000) 
 
-# ordination -------------------------------------------------------------------
-# Transform to relative abundance. Save as new object.
-ps_rel <- transform_sample_counts(ps2, function(x){x / sum(x)})
-ps_rel <- transform_sample_counts(ps2, function(x) log(x + 1))
-ps_rel <- transform_sample_counts(ps2, function(x) log(x + 1) / sum(log(x+1)))
-ps_rel <- normalise_data(ps2, "varstab")
-ps_ord <- ordinate(ps_rel, "NMDS", "bray")
-# plot taxa
-# plot_ordination(ps_rel, ps_ord, type="taxa", color="Phylum", title="taxa")
-# plot samples
+# ordination ---------------------------------------------------------------------------------------
+# which transformation is appropriate?
+qplot(log(rowSums(otu_table(ps3)))) +
+    xlab("Logged counts-per-sample")
+
+# variance stabilizing transformation -----------------------------
+
+# convert to deseq
+nes_dds <- phyloseq_to_deseq2(ps3, ~1)
+# estimate size factors with not including 0 in geometric mean calc
+nes_dds  <- estimateSizeFactors(nes_dds, type = "poscounts") %>% 
+                estimateDispersions(fitType = "local")
+# create new phyloseq object with variance stabilised ASV table
+ps_vst <- ps3
+otu_table(ps_vst) <- otu_table(getVarianceStabilizedData(nes_dds), taxa_are_rows = TRUE)
+
+# Ordination
 colpal <- c(  "#0000ff", "#ffb14e", "#ea5f94"  )
-colpal <- wes_palette("Moonrise2", 3, type = "discrete")      
+colpal <- wes_palette("Moonrise2", 3, type = "discrete")   
+# calculate ordination
+ps_ord <- ordinate(ps_vst, "MDS", "bray")
+# calculate axis length relationships according to eigenvalues
+evals <- ps_ord$values$Eigenvalues
+# get df
+plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint")
+p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", justDF = TRUE)
 
-p1 <- plot_ordination(ps_rel, ps_ord, type="samples", color="timepoint", shape = "sex") 
-p1 +
-  theme_martin() +
-  theme(panel.grid = element_blank()) +
-  scale_shape_manual(values = c(19,17))+
-  geom_point(size = 3, alpha = 1) +
-  scale_color_manual(values = colpal) #+
-  #ggtitle("abundance < 5000 reads")
+p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
+    geom_point(size = 3, alpha = 0.8, aes(shape = sex, color = timepoint)) +
+    #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
+    theme_martin() +
+    theme(panel.grid = element_blank()) +
+    #scale_shape_manual(values = c(21,2))+
+    scale_color_manual(values = colpal) +
+    coord_fixed(sqrt(evals[2] / evals[1])) +
+    theme(legend.position = "bottom",
+          legend.direction = "horizontal") +
+    xlab("Axis 1 [28,4%]") +
+    ylab("Axis 2 [13,3%]")
+    
+p_ord_plot
+# ggsave("../figures/sex_time_MDS.jpg", p_ord_plot, width = 6, height = 4)
 
-#p1 + geom_polygon(aes(fill=timepoint)) + geom_point(size=5) + ggtitle("samples")
+# rlog
+# class(GPdds)
+# r_log_trans <- rlog(GPdds, blind = FALSE)
+# #r_log_trans2 <- rlog(GPdds, blind = TRUE, fast = TRUE)
+# rlogMat <- assay(r_log_trans)
+# rlogMat[rlogMat<0]<-0
+# rownames(rlogMat) <- taxa_names(ps3)
+# ps_rlog <- ps3
+# otu_table(ps_rlog) <- otu_table(rlogMat, taxa_are_rows = TRUE)
+# # plot ordination
+# # calculate ordination
+# ps_ord <- ordinate(ps_rlog, "MDS", "bray")
+# # calculate axis length relationships according to eigenvalues
+# evals <- ps_ord$values$Eigenvalues
+# # get df
+# plot_ordination(ps_rlog, ps_ord, shape = "sex", color = "timepoint")
+# p_ord_df <- plot_ordination(ps_rlog, ps_ord, shape = "sex", color = "timepoint", justDF = TRUE)
+# 
+# p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
+#     geom_point(size = 3, alpha = 0.8, aes(shape = sex, color = timepoint)) +
+#     #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
+#     theme_martin() +
+#     theme(panel.grid = element_blank()) +
+#     #scale_shape_manual(values = c(21,2))+
+#     scale_color_manual(values = colpal) +
+#     coord_fixed(sqrt(evals[2] / evals[1])) +
+#     theme(legend.position = "bottom",
+#         legend.direction = "horizontal") +
+#     xlab("Axis 1 [20,2%]") +
+#     ylab("Axis 2 [11,3%]")
+# p_ord_plot 
 
-plot_richness_estimates(ps, x = "timepoint", color = "sex", measure = c("Shannon", "Simpson", "InvSimpson")) +
-  geom_boxplot() +
-  theme_martin() +
-  theme(panel.grid = element_blank()) 
+# repeatability?
+sample_data(ps_vst)$individual <- as.factor(sample_data(ps_vst)$individual)
+p_ord_rpt <- plot_ordination(ps_vst, ps_ord, color = "individual", type = "samples", shape = "sex")
+p_ord_rpt  + geom_polygon(aes(fill=individual), alpha = 0.05) + geom_point(size=5) + ggtitle("samples")
 
-# try variance-stabilising transformation Now perform the variance-stabilizing transformation and replace the original OTU abundances in a copy of GP with them. We'll call the copy GPvst.
-# Use `~1` as the experimental design so that the actual design doesn't
-# influence your tranformation.
-ps_sd <- phyloseq_to_deseq2(ps2, ~1)
-ps_sd <- estimateSizeFactors(ps_sd)
-ps_sd <- estimateDispersions(ps_sd, fitType = "local")
+# alpha diversity ----------------------------------------------------------------------------------
 
-ps_vst <- ps2
-otu_table(ps_vst) <- otu_table(getVarianceStabilizedData(ps_sd), taxa_are_rows = TRUE)
-plot_ordination(ps_vst, ordinate(ps_vst, "NMDS", "bray"), color="timepoint", shape = "sex")+
-  theme_martin() +
-  theme(panel.grid = element_blank()) +
-  scale_shape_manual(values = c(19,17))+
-  geom_point(size = 3, alpha = 1) +
-  scale_color_manual(values = colpal)
+diversity_df <- estimate_richness(ps, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
+                    tibble::rownames_to_column("id") %>% 
+                    mutate(id = str_replace(id, "X", "")) %>% 
+                    left_join(sample_data(ps), by = "id")
 
-ps_rl <- ps2
-rld <- rlog(ps_sd, blind = FALSE)
-rownames(rld) <- taxa_names(ps2)
-otu_table(ps_rl) <- otu_table(rld, taxa_are_rows = TRUE)
-plot_ordination(rld, ordinate(Grld, "NMDS", "bray"), color = "SampleType")
+colpal_cavalanti <- wes_palette("Cavalcanti1", 2, type = "discrete")
+as.character(wes_palette("IsleofDogs1"))
+colpal_moonrise <- c("#899DA4",  "#79402E")
+
+#library(tidyr)
+#div_lf <- gather(diversity_df, div_meas, div, c(Observed, Shannon, Simpson, InvSimpson))
+
+p_div <- ggplot(diversity_df, aes(sex, Shannon)) + #colour = sex
+    geom_boxplot(alpha = 1, outlier.shape = NA, aes(colour = sex)) +
+    geom_jitter(size = 3, alpha = 0.6, shape = 21, col = "black", aes(fill = sex), width = 0.3) +
+    facet_wrap(~timepoint) +
+    theme_martin() +
+    ggtitle("Timepoint") +
+    scale_fill_manual(values = colpal_moonrise, name = "Sex") +
+    scale_color_manual(values = colpal_moonrise, name = "Sex") +
+    ylab("Shannon diversity")+
+    xlab("Sex")+
+    theme(plot.title = element_text(hjust = 0.5, size = 12),
+          legend.title = )
+p_div
+
+# modeling
+library(lme4)
+library(partR2)
+div_mod <- lmer(Shannon ~ sex + timepoint + (1|id), data = diversity_df)
+summary(div_mod)
+boot_div_mod <- confint(div_mod)
+R2_div <- partGaussian(div_mod, partvars = c("sex", "timepoint"), nboot = 1000)
+
+ # ggsave("../figures/diversity.jpg", p_div, width = 6, height = 3.2)
+
+# barplots
+plot_bar(ps_vst)
+
+# permanova analysis (check pseudoreplication problem)
+library(vegan)
+# sex
+metadata <- as(sample_data(ps_vst), "data.frame")
+mod_sex <- adonis(phyloseq::distance(ps_vst, method="bray") ~  sex,
+    data = metadata)
+mod_timepoint <- adonis(phyloseq::distance(ps_vst, method="bray") ~  timepoint,
+    data = metadata)
+# timepoint 1 vs 2
+T1T2 <- (!str_detect(sample_names(ps_vst), "T3"))
+ps_vstT1T2 <- prune_samples(T1T2, ps_vst)
+metadata <- as(sample_data(ps_vstT1T2), "data.frame")
+mod_t1t2 <- adonis(phyloseq::distance(ps_vstT1T2, method="bray") ~  timepoint,  strata = metadata$sex,
+    data = metadata)
+# timepoint 2 vs 3
+T2T3 <- str_detect(sample_names(ps_vst), "T")
+ps_vstT2T3 <- prune_samples(T2T3, ps_vst)
+metadata <- as(sample_data(ps_vstT2T3), "data.frame")
+mod_t2t3 <- adonis(phyloseq::distance(ps_vstT2T3, method="bray") ~  timepoint, strata = metadata$sex,
+    data = metadata)
+# timepoint 3 vs 1
+T1T3 <- !str_detect(sample_names(ps_vst), "T2")
+ps_vstT1T3 <- prune_samples(T1T3, ps_vst)
+metadata <- as(sample_data(ps_vstT1T3), "data.frame")
+mod_t1t3 <- adonis(phyloseq::distance(ps_vstT1T3, method="bray") ~  timepoint, strata = metadata$sex,
+    data = metadata)
+
+# individuals, repeatability?
+metadata <- as(sample_data(ps_vst), "data.frame")
+mod_rpt <- adonis(phyloseq::distance(ps_vst, method="bray") ~  sex + individual, 
+    data = metadata)
+
+# group dispersion assumption testing
+mod <- betadisper(d = phyloseq::distance(ps_vst, method="bray"), group = metadata$sex)
+anova(mod) # parametric anova
+TukeyHSD(mod) # Tukey Honest Significant Difference Method
+permutest(mod) # Permutation test
+mod <- betadisper(d = phyloseq::distance(ps_vst, method="bray"), group = metadata$timepoint)
+anova(mod)
+TukeyHSD(mod)
 
 
 # deseq2 analysis --------------------------------------------------------------
-timedds <- phyloseq_to_deseq2(ps2, ~ timepoint)
+
+# calculate deseq output and put in dataframe ======================================
+calc_deseq_table_timepoint <- function(not_timepoint, sex = NULL, phseq_obj){
+    ps_mod <- phseq_obj
+    # prune
+    if (!is.null(sex)){
+        nes_sub_sex <- sample_data(ps_mod)$sex == sex
+        ps_mod <- prune_samples(nes_sub_sex, ps_mod)
+    }
+    nes_sub_time <- !(sample_data(ps_mod)$timepoint == not_timepoint)
+    ps_temp <- prune_samples(nes_sub_time, ps_mod)
+    # analysis
+    timedds <- phyloseq_to_deseq2(ps_temp, ~ timepoint)
+    timedds$timepoint
+    timedds <- DESeq(timedds, test="Wald", fitType="parametric")
+    # formatting
+    res <- results(timedds, cooksCutoff = FALSE)
+    alpha <- 0.01
+    sigtab <- res[which(res$padj < alpha), ]
+    sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(ps3)[rownames(sigtab), ], "matrix"))
+    sigtab <- as_tibble(sigtab)
+    sigtab$comparison <- stringr::str_remove("T1T2T3", not_timepoint)
+    if (!is.null(sex)){
+        sigtab$sex <- sex
+    }
+    sigtab
+}
+
+ggplot(sigtab, aes(x=Class, y=log2FoldChange, color=Phylum)) + geom_point(size=3) + 
+    theme_martin() +
+    facet_wrap(~comparison) +
+    coord_flip()
+ps_mod <- ps3
+nes_sub_sex <- sample_data(ps3)$sex == "M"
+ps_mod <- prune_samples(nes_sub_sex, ps3)
+
+ps_mod <- subset_samples(ps3, timepoint != "T3")
+
+
+# deseq2 modeling ----------------------------------------------------------------------------------
+#ps_m <- prune_samples(sample_data(ps3)$timepoint %in% c("T1", "T2"), ps3)
+sample_data(ps3)$group <- factor(paste0(sample_data(ps3)$timepoint, sample_data(ps3)$sex))
+
+timedds <- phyloseq_to_deseq2(ps3, ~ group)
+colData(timedds)
+vst_dds <- estimateSizeFactors(timedds, type = "poscounts")
+vst_dds <- varianceStabilizingTransformation(vst_dds, fitType = "parametric")
+plotPCA(vst_dds, intgroup="group")
+# gm_mean = function(x, na.rm=TRUE){
+#     exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+# }
+# geoMeans <- apply(counts(timedds), 1, gm_mean)
+timedds <- estimateSizeFactors(timedds, type = "poscounts") # type = "iterate"
+
+#timedds <- estimateSizeFactors(timedds , geoMeans=geoMeans)
 timedds <- DESeq(timedds, test="Wald", fitType="parametric")
-res <- results(timedds, cooksCutoff = FALSE)
+plotPCA(timedds)
+#timedds <- DESeq(timedds, test="Wald", fitType="parametric")
+#colData(timedds)
+resultsNames(timedds)
+# Investigate results table
+res <- results(timedds, cooksCutoff = FALSE, contrast = c("group", "T2M", "T1M")) # contrast = c("timepoint", "T2", "T1")
+res <- res[order(res$padj, na.last=NA), ]
 alpha <- 0.01
 sigtab <- res[which(res$padj < alpha), ]
-sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(ps2)[rownames(sigtab), ], "matrix"))
-sigtab_check <- as_tibble(sigtab)
+sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(ps3)[rownames(sigtab), ], "matrix"))
+sigtab <- as_tibble(sigtab)
+sigtab
+# cleanup for making a table
+posigtab <- sigtab[sigtab[, "log2FoldChange"] > 0, ]
+posigtab <- posigtab[, c("baseMean", "log2FoldChange", "lfcSE", "padj", "Phylum", "Class", "Family", "Genus")]
+
+# sorting
+# Phylum order
+x <- tapply(sigtab$log2FoldChange, sigtab$Phylum, function(x) max(x))
+x <- sort(x, TRUE)
+sigtab$Phylum <- factor(as.character(sigtab$Phylum), levels=names(x))
+# Class order
+x <- tapply(sigtab$log2FoldChange, sigtab$Class, function(x) max(x))
+x <- sort(x, TRUE)
+sigtab$Class <- factor(as.character(sigtab$Class), levels=names(x))
+# Genus order
+x <- tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x))
+x <- sort(x, TRUE)
+sigtab$Genus <- factor(as.character(sigtab$Genus), levels=names(x))
+
+# plotting
+ggplot(sigtab, aes(x=Genus, y=log2FoldChange, color=Phylum)) + geom_point(size=3, alpha = 0.2) + 
+    theme_martin() +
+    #facet_wrap(~comparison) +
+    coord_flip() 
+  
+#formatting
+# res <- results(timedds, cooksCutoff = FALSE, contrast = c("sex", "M", "F"))
+res <- results(timedds, cooksCutoff = FALSE, contrast = c("timepoint", "T2", "T1"))
+head(res)
+alpha <- 0.001
+sigtab <- res[which(res$padj < alpha), ]
+sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(ps3)[rownames(sigtab), ], "matrix"))
+sigtab <- as_tibble(sigtab)
+
+ggplot(sigtab, aes(x=Genus, y=log2FoldChange, color=Phylum)) + geom_point(size=3) + 
+    theme_martin() +
+    #facet_wrap(~comparison) +
+    coord_flip() +
+    ggtitle("Diff T2T1 subsetT3 mod")
+
+# 
+deseq_timepoint_tib_F <- purrr::map(c("T3", "T1"), calc_deseq_table_timepoint, sex = "F", ps3) %>% 
+                        bind_rows()
+deseq_timepoint_tib_M <- purrr::map(c("T3", "T1"), calc_deseq_table_timepoint, sex = "M", ps3) %>% 
+    bind_rows()
+
+deseq_timepoint_tib <- purrr::map(c("T3", "T1"), calc_deseq_table_timepoint, phseq_obj = ps3) %>% 
+    bind_rows()
+
+deseq_full <- bind_rows(deseq_timepoint_tib_F, deseq_timepoint_tib_M)
+
+cutoff <- data.frame(yintercept=0, cutoff=factor(0))
+ggplot(deseq_full, aes(x=Class, y=log2FoldChange, color=Phylum)) + geom_point(size=3) + 
+    theme_martin() +
+    # facet_wrap(c("comparison"))
+    facet_wrap(c("sex", "comparison")) +
+    geom_hline(aes(yintercept=yintercept, linetype=cutoff), data=cutoff) +
+    #theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+    coord_flip()
+
+# timepoint 1 vs 2
+ps3_T1T2 <- subset_samples(ps3, timepoint != "T3")
+# analysis
+timedds <- phyloseq_to_deseq2(ps3_T1T2, ~ timepoint)
+timedds$timepoint
+timedds <- DESeq(timedds, test="Wald", fitType="parametric")
+# formatting
+res <- results(timedds, cooksCutoff = FALSE)
+alpha <- 0.001
+sigtab <- res[which(res$padj < alpha), ]
+sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(ps3)[rownames(sigtab), ], "matrix"))
+sigtab <- as_tibble(sigtab)
+# timepoint 2 vs 3
+ps3_T2T3 <- subset_samples(ps3, timepoint %in% c("T3", "T2"))
+# analysis
+timedds <- phyloseq_to_deseq2(ps3_T2T3, ~ timepoint)
+timedds$timepoint
+timedds <- DESeq(timedds, test="Wald", fitType="parametric")
+# formatting
+res <- results(timedds, cooksCutoff = FALSE)
+alpha <- 0.001
+sigtab2 <- res[which(res$padj < alpha), ]
+sigtab2 <- cbind(as(sigtab2, "data.frame"), as(tax_table(ps3)[rownames(sigtab2), ], "matrix"))
+sigtab2 <- as_tibble(sigtab2)
+
+sigtab_full <- rbind(sigtab, sigtab2)
+sigtab_full$timecomp <- c(rep("T1T2", nrow(sigtab)), rep("T2T3", nrow(sigtab2)))
+sigtab <- sigtab_full
+
+#dim(sigtab)
+
+mcols(res)$description
 
 # which ASV were different?
 theme_set(theme_bw())
@@ -260,14 +546,31 @@ scale_fill_discrete <- function(palname = "Set1", ...) {
 x <- tapply(sigtab$log2FoldChange, sigtab$Phylum, function(x) max(x))
 x <- sort(x, TRUE)
 sigtab$Phylum <- factor(as.character(sigtab$Phylum), levels=names(x))
+# Class order
+x <- tapply(sigtab$log2FoldChange, sigtab$Class, function(x) max(x))
+x <- sort(x, TRUE)
+sigtab$Class <- factor(as.character(sigtab$Class), levels=names(x))
 # Genus order
 x <- tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x))
 x <- sort(x, TRUE)
 sigtab$Genus <- factor(as.character(sigtab$Genus), levels=names(x))
 
-ggplot(sigtab, aes(x=Genus, y=log2FoldChange, color=Phylum)) + geom_point(size=3) + 
-  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
-  ggtitle("Sex differences")
+cutoff <- data.frame(yintercept=0, cutoff=factor(0))
+ggplot(sigtab, aes(x=Class, y=log2FoldChange, color=Phylum)) + geom_point(size=3) + 
+    theme_martin() +
+    facet_grid(~timecomp) +
+    geom_hline(aes(yintercept=yintercept, linetype=cutoff), data=cutoff) +
+    #theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+    coord_flip()
+ # ggtitle("Sex differences")
+
+plotMA(res, ylim = c(-5, 11))
+# shrinkage
+library("IHW")
+resultsNames(timedds)
+resLFC <- lfcShrink(timedds, coef = "timepoint_T2_vs_T1")
+summary(resIHW)
+plotMA(resIHW, ylim=c(-5,11))
 
 # preprocessing 
 
@@ -703,3 +1006,9 @@ mult <- msa(seqs, method="ClustalW", type="dna", order="input")
 
 
 
+
+
+
+
+
+≈
