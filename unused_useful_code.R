@@ -60,3 +60,78 @@ otu_table(ps_clr_mod)[otu_table(ps_clr_mod) < 0] <- 0
 #     return(x)
 # }
 # ps_rel <- transform_sample_counts(ps3, clr)
+
+
+# rlog
+# class(GPdds)
+# r_log_trans <- rlog(GPdds, blind = FALSE)
+# #r_log_trans2 <- rlog(GPdds, blind = TRUE, fast = TRUE)
+# rlogMat <- assay(r_log_trans)
+# rlogMat[rlogMat<0]<-0
+# rownames(rlogMat) <- taxa_names(ps3)
+# ps_rlog <- ps3
+# otu_table(ps_rlog) <- otu_table(rlogMat, taxa_are_rows = TRUE)
+# # plot ordination
+# # calculate ordination
+# ps_ord <- ordinate(ps_rlog, "MDS", "bray")
+# # calculate axis length relationships according to eigenvalues
+# evals <- ps_ord$values$Eigenvalues
+# # get df
+# plot_ordination(ps_rlog, ps_ord, shape = "sex", color = "timepoint")
+# p_ord_df <- plot_ordination(ps_rlog, ps_ord, shape = "sex", color = "timepoint", justDF = TRUE)
+# 
+# p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
+#     geom_point(size = 3, alpha = 0.8, aes(shape = sex, color = timepoint)) +
+#     #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
+#     theme_martin() +
+#     theme(panel.grid = element_blank()) +
+#     #scale_shape_manual(values = c(21,2))+
+#     scale_color_manual(values = colpal) +
+#     coord_fixed(sqrt(evals[2] / evals[1])) +
+#     theme(legend.position = "bottom",
+#         legend.direction = "horizontal") +
+#     xlab("Axis 1 [20,2%]") +
+#     ylab("Axis 2 [11,3%]")
+# p_ord_plot 
+
+
+
+
+# DESEQ2 ANALYSIS
+
+# calculate deseq output and put in dataframe ======================================
+calc_deseq_table_timepoint <- function(not_timepoint, sex = NULL, phseq_obj){
+    ps_mod <- phseq_obj
+    # prune
+    if (!is.null(sex)){
+        nes_sub_sex <- sample_data(ps_mod)$sex == sex
+        ps_mod <- prune_samples(nes_sub_sex, ps_mod)
+    }
+    nes_sub_time <- !(sample_data(ps_mod)$timepoint == not_timepoint)
+    ps_temp <- prune_samples(nes_sub_time, ps_mod)
+    # analysis
+    timedds <- phyloseq_to_deseq2(ps_temp, ~ timepoint)
+    timedds$timepoint
+    timedds <- DESeq(timedds, test="Wald", fitType="parametric")
+    # formatting
+    res <- results(timedds, cooksCutoff = FALSE)
+    alpha <- 0.01
+    sigtab <- res[which(res$padj < alpha), ]
+    sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(ps3)[rownames(sigtab), ], "matrix"))
+    sigtab <- as_tibble(sigtab)
+    sigtab$comparison <- stringr::str_remove("T1T2T3", not_timepoint)
+    if (!is.null(sex)){
+        sigtab$sex <- sex
+    }
+    sigtab
+}
+
+ggplot(sigtab, aes(x=Class, y=log2FoldChange, color=Phylum)) + geom_point(size=3) + 
+    theme_martin() +
+    facet_wrap(~comparison) +
+    coord_flip()
+ps_mod <- ps3
+nes_sub_sex <- sample_data(ps3)$sex == "M"
+ps_mod <- prune_samples(nes_sub_sex, ps3)
+
+ps_mod <- subset_samples(ps3, timepoint != "T3")

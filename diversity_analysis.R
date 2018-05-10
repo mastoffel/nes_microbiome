@@ -165,7 +165,7 @@ sort(table(tax_table(ps2)[, "Phylum"], exclude = NULL))
 
 # FILTER 3, either of:
 
-# taxa have to have at least 20 reads
+# taxa have to have at least 30 reads
 plot(sort(taxa_sums(ps), TRUE), type="h", ylim=c(0, 100))
 
 min_reads <- 30
@@ -210,8 +210,8 @@ plot_abundance(ps3)
 sample_data(ps) <- sample_data(ps) %>% 
     mutate(abundance = sample_sums(ps) < 5000) 
 
-sample_data(ps2) <- sample_data(ps3) %>% 
-  mutate(abundance = sample_sums(ps3) < 5000) 
+sample_data(ps3) <- sample_data(ps3) %>% 
+  mutate(abundance = sample_sums(ps3) < 10000) 
 
 # ordination ---------------------------------------------------------------------------------------
 # which transformation is appropriate?
@@ -229,7 +229,7 @@ nes_dds  <- estimateSizeFactors(nes_dds, type = "poscounts") %>%
 ps_vst <- ps3
 otu_table(ps_vst) <- otu_table(getVarianceStabilizedData(nes_dds), taxa_are_rows = TRUE)
 
-# Ordination
+# Ordination sex / time plot ----------------------------------
 colpal <- c(  "#0000ff", "#ffb14e", "#ea5f94"  )
 colpal <- wes_palette("Moonrise2", 3, type = "discrete")   
 # calculate ordination
@@ -256,37 +256,22 @@ p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
 p_ord_plot
 # ggsave("../figures/sex_time_MDS.jpg", p_ord_plot, width = 6, height = 4)
 
-# rlog
-# class(GPdds)
-# r_log_trans <- rlog(GPdds, blind = FALSE)
-# #r_log_trans2 <- rlog(GPdds, blind = TRUE, fast = TRUE)
-# rlogMat <- assay(r_log_trans)
-# rlogMat[rlogMat<0]<-0
-# rownames(rlogMat) <- taxa_names(ps3)
-# ps_rlog <- ps3
-# otu_table(ps_rlog) <- otu_table(rlogMat, taxa_are_rows = TRUE)
-# # plot ordination
-# # calculate ordination
-# ps_ord <- ordinate(ps_rlog, "MDS", "bray")
-# # calculate axis length relationships according to eigenvalues
-# evals <- ps_ord$values$Eigenvalues
-# # get df
-# plot_ordination(ps_rlog, ps_ord, shape = "sex", color = "timepoint")
-# p_ord_df <- plot_ordination(ps_rlog, ps_ord, shape = "sex", color = "timepoint", justDF = TRUE)
-# 
-# p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
-#     geom_point(size = 3, alpha = 0.8, aes(shape = sex, color = timepoint)) +
-#     #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
-#     theme_martin() +
-#     theme(panel.grid = element_blank()) +
-#     #scale_shape_manual(values = c(21,2))+
-#     scale_color_manual(values = colpal) +
-#     coord_fixed(sqrt(evals[2] / evals[1])) +
-#     theme(legend.position = "bottom",
-#         legend.direction = "horizontal") +
-#     xlab("Axis 1 [20,2%]") +
-#     ylab("Axis 2 [11,3%]")
-# p_ord_plot 
+# Ordination outlier plot ----------------------------------
+p_ord_plot_outlier <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
+    geom_point(size = 3, alpha = 0.8, aes(color = abundance)) +
+    #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
+    theme_martin() +
+    theme(panel.grid = element_blank()) +
+    #scale_shape_manual(values = c(21,2))+
+    scale_color_manual(values = colpal) +
+    coord_fixed(sqrt(evals[2] / evals[1])) +
+    theme(legend.position = "bottom",
+        legend.direction = "horizontal") +
+    xlab("Axis 1 [28,4%]") +
+    ylab("Axis 2 [13,3%]")
+
+p_ord_plot_outlier
+
 
 # repeatability?
 sample_data(ps_vst)$individual <- as.factor(sample_data(ps_vst)$individual)
@@ -294,7 +279,6 @@ p_ord_rpt <- plot_ordination(ps_vst, ps_ord, color = "individual", type = "sampl
 p_ord_rpt  + geom_polygon(aes(fill=individual), alpha = 0.05) + geom_point(size=5) + ggtitle("samples")
 
 # alpha diversity ----------------------------------------------------------------------------------
-
 diversity_df <- estimate_richness(ps, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
                     tibble::rownames_to_column("id") %>% 
                     mutate(id = str_replace(id, "X", "")) %>% 
@@ -376,69 +360,158 @@ anova(mod)
 TukeyHSD(mod)
 
 
-# deseq2 analysis --------------------------------------------------------------
+# deseq2 modeling ----------------------------------------------------------------------------------
 
-# calculate deseq output and put in dataframe ======================================
-calc_deseq_table_timepoint <- function(not_timepoint, sex = NULL, phseq_obj){
-    ps_mod <- phseq_obj
-    # prune
-    if (!is.null(sex)){
-        nes_sub_sex <- sample_data(ps_mod)$sex == sex
-        ps_mod <- prune_samples(nes_sub_sex, ps_mod)
-    }
-    nes_sub_time <- !(sample_data(ps_mod)$timepoint == not_timepoint)
-    ps_temp <- prune_samples(nes_sub_time, ps_mod)
-    # analysis
-    timedds <- phyloseq_to_deseq2(ps_temp, ~ timepoint)
-    timedds$timepoint
-    timedds <- DESeq(timedds, test="Wald", fitType="parametric")
-    # formatting
-    res <- results(timedds, cooksCutoff = FALSE)
-    alpha <- 0.01
+#ps_m <- prune_samples(sample_data(ps3)$timepoint %in% c("T1", "T2"), ps3)
+
+# create factor representing the combination of time and sex
+sample_data(ps3)$group <- factor(paste0(sample_data(ps3)$timepoint, sample_data(ps3)$sex))
+# create DESeq2 object
+nes_mod_dds <- phyloseq_to_deseq2(ps3, ~ group)
+colData(nes_mod_dds)
+# estimate size factos
+vst_dds <- estimateSizeFactors(nes_mod_dds, type = "poscounts")
+
+# see again if groups differ
+#vst_dds_temp <- varianceStabilizingTransformation(vst_dds, fitType = "local")
+#plotPCA(vst_dds_temp, intgroup="group")
+
+# deseq analysis    
+vst_dds <- DESeq(vst_dds, test="Wald", fitType="local")
+
+#colData(vst_dds)
+#resultsNames(vst_dds)
+
+# Investigate results table
+get_dds_results_tables <- function(contrast, deseq_analysis_object, alpha) {
+    res <- results(deseq_analysis_object, cooksCutoff = FALSE, contrast)
+    res <- res[order(res$padj, na.last=NA), ]
     sigtab <- res[which(res$padj < alpha), ]
     sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(ps3)[rownames(sigtab), ], "matrix"))
     sigtab <- as_tibble(sigtab)
-    sigtab$comparison <- stringr::str_remove("T1T2T3", not_timepoint)
-    if (!is.null(sex)){
-        sigtab$sex <- sex
-    }
+    sigtab$comparison <- paste0(contrast[2], "vs" , contrast[3])
     sigtab
 }
+all_contrasts <- list(c("group", "T2F", "T1F"), c("group", "T3F", "T2F"), 
+                      c("group", "T2M", "T1M"), c("group", "T3M", "T2M"))
 
-ggplot(sigtab, aes(x=Class, y=log2FoldChange, color=Phylum)) + geom_point(size=3) + 
+all_sigtabs <- map_df(all_contrasts,get_dds_results_tables, vst_dds, 0.001)
+
+# releveling and changing NA to Not assigned for plotting
+all_sigtabs_plot <- all_sigtabs %>% 
+                    mutate(comparison = comparison %>% as_factor() %>% 
+                            fct_relevel("T2FvsT1F", "T3FvsT2F", "T2MvsT1M", "T3MvsT2M")) %>% 
+                    tidyr::replace_na(replace = list(Class = "Not assigned", Family = "Not assigned", 
+                        Genus = "Not assigned", Order = "Not assigned")) %>% 
+                    mutate_at(c("Family", "Genus", "Order"), function(x) {
+                        as_factor(x) %>% fct_relevel("Not assigned", after = Inf) %>% fct_rev()
+                    }) %>% 
+                    mutate_at(c("Class"), function(x) {
+                        as_factor(x) %>% fct_relevel("Not assigned", after = 0) %>% fct_rev()
+                    })
+levels(all_sigtabs_plot$comparison) <- c("Females T1 -> T2'", "Females, T2 -> T3", "Males, T1 -> T2", "Males, T2 -> T3")
+
+
+get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+
+set.seed(559) # 5 / 559
+plotcols <- c(sample(c(get_colors("Paired"), "grey", "black")),"white")
+
+dat_text <- data.frame(
+    label = c("\u2640","\u2640","\u2642","\u2642"),
+    comparison  = factor(c("Females, T1 -> T2", "Females, T2 -> T3", "Males, T1 -> T2", "Males, T2 -> T3")),
+    y = c(Inf, -Inf, Inf, -Inf),
+    x = c(10,10,10,10)
+)
+
+p_diff_time <- ggplot(all_sigtabs_plot, aes(x=Order, y=log2FoldChange)) + 
+    #geom_point(size = 3) + 
+    geom_point(size=3, alpha = 1, shape = 21, colour = "black", lwd = 0.1, aes(fill=Class)) + 
     theme_martin() +
     facet_wrap(~comparison) +
-    coord_flip()
-ps_mod <- ps3
-nes_sub_sex <- sample_data(ps3)$sex == "M"
-ps_mod <- prune_samples(nes_sub_sex, ps3)
+    scale_fill_manual(values = plotcols) +
+    # limits = unique(rev(all_sigtabs$Family))
+    scale_y_continuous(breaks = seq(from = -40, to = 40, by = 20), limits = c(-45, 45)) +
+    geom_hline(yintercept = 0.0, alpha = 0.5, linetype = 2) +
+    #annotate("text", x = 10, y = 40, label = "\u2642", size = 20, lwd = 3, color = "darkgrey") +
+    coord_flip() +
+    ylab(expression(log[2]~fold~change)) +
+    theme(panel.grid.minor = element_blank(),
+         axis.text.y = element_text(size = 8),
+         axis.title.y = element_text(size = 11),
+         axis.title.x = element_text(size = 11),
+         legend.position = c(0.37, -0.18),
+         plot.margin = margin(b = 55),
+         legend.text = element_text(size = 8),
+         legend.title = element_text(size = 11),
+         strip.text = element_text(size=11)
+        #panel.spacing = unit(0, "lines")
+        ) +
+    guides(fill=guide_legend(
+        title.position = "left",
+        keywidth=0.1,
+        keyheight=0.1,
+        nrow = 3,
+        default.unit="inch")) 
+    
+    # geom_text(
+    #     data    = dat_text,
+    #     mapping = aes(x = x, y = y, label = label),
+    #     size = 20,
+    #     color = "darkgrey"
+    #     #hjust   = -0.1,
+    #     #vjust   = -1
+    # )
 
-ps_mod <- subset_samples(ps3, timepoint != "T3")
+p_diff_time
+ggsave("../figures/timepoint_diff_abund.jpg", p_diff_time , width = 6, height = 6)
 
 
-# deseq2 modeling ----------------------------------------------------------------------------------
-#ps_m <- prune_samples(sample_data(ps3)$timepoint %in% c("T1", "T2"), ps3)
-sample_data(ps3)$group <- factor(paste0(sample_data(ps3)$timepoint, sample_data(ps3)$sex))
+# second differential abundance plot, sex differences --------------------------
+all_contrasts <- list(c("group", "T1F", "T1M"), c("group", "T2F", "T2M"), 
+                      c("group", "T3F", "T3M"))
 
-timedds <- phyloseq_to_deseq2(ps3, ~ group)
-colData(timedds)
-vst_dds <- estimateSizeFactors(timedds, type = "poscounts")
-vst_dds <- varianceStabilizingTransformation(vst_dds, fitType = "parametric")
-plotPCA(vst_dds, intgroup="group")
-# gm_mean = function(x, na.rm=TRUE){
-#     exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
-# }
-# geoMeans <- apply(counts(timedds), 1, gm_mean)
-timedds <- estimateSizeFactors(timedds, type = "poscounts") # type = "iterate"
+all_sigtabs_sexdiff <- map_df(all_contrasts,get_dds_results_tables, vst_dds, 0.001)
 
-#timedds <- estimateSizeFactors(timedds , geoMeans=geoMeans)
-timedds <- DESeq(timedds, test="Wald", fitType="parametric")
-plotPCA(timedds)
-#timedds <- DESeq(timedds, test="Wald", fitType="parametric")
-#colData(timedds)
-resultsNames(timedds)
-# Investigate results table
-res <- results(timedds, cooksCutoff = FALSE, contrast = c("group", "T2M", "T1M")) # contrast = c("timepoint", "T2", "T1")
+p_diff_sex <- ggplot(all_sigtabs_sexdiff, aes(x=Order, y=log2FoldChange)) +
+    geom_point(size=3, alpha = 1, shape = 21, colour = "black", lwd = 0.1, aes(fill=Class)) + 
+    theme_martin() +
+    facet_wrap(~comparison) +
+    scale_fill_manual(values = plotcols) +
+    # limits = unique(rev(all_sigtabs$Family))
+    scale_y_continuous(breaks = seq(from = -40, to = 40, by = 20), limits = c(-45, 45)) +
+    geom_hline(yintercept = 0.0, alpha = 0.5, linetype = 2) +
+    #annotate("text", x = 10, y = 40, label = "\u2642", size = 20, lwd = 3, color = "darkgrey") +
+    coord_flip() +
+    ylab(expression(log[2]~fold~change)) +
+    theme(panel.grid.minor = element_blank(),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(size = 11),
+        axis.title.x = element_text(size = 11),
+        legend.position = c(0.37, -0.18),
+        plot.margin = margin(b = 55),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 11),
+        strip.text = element_text(size=11)
+        #panel.spacing = unit(0, "lines")
+    ) +
+    guides(fill=guide_legend(
+        title.position = "left",
+        keywidth=0.1,
+        keyheight=0.1,
+        nrow = 3,
+        default.unit="inch")) 
+
+p_diff_sex
+
+
+
+
+
+
+
+
+res <- results(vst_dds, cooksCutoff = FALSE, contrast = c("group", "T2M", "T1M")) # contrast = c("timepoint", "T2", "T1")
 res <- res[order(res$padj, na.last=NA), ]
 alpha <- 0.01
 sigtab <- res[which(res$padj < alpha), ]
