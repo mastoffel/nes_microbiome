@@ -1,27 +1,12 @@
-# phyloseq
-library(phyloseq)
-library(ggplot2)
-library(dplyr)
-library(stringr)
-library(msa)
-library(inbreedR)
-library(readxl)
-library(stringr)
-library(dplyr)
-library(rptR)
-library(plyr)
-library(reshape2)
-library(lme4)
-library(DESeq2)
-library(dada2)
-library(phangorn)
-library(purrr)
-library(related)
-library(forcats)
-library(wesanderson)
+# Full analysis of ASVs for the paper
+
+# load packages ------------------------------------------------------------------------------------
+library(pacman)
+p_load(phyloseq, tidyverse, msa, inbreedR, rptR, lme4, DESeq2, 
+       dada2, phangorn, wesanderson, grid, cowplot, readxl, RColorBrewer, blogdown)
+library(patchwork)
 source("martin.R")
 #library(microbiomeSeq)
-# todo: filter fecal sample or let it in!
 
 # Prepare and load data ----------------------------------------------------------------------------
 
@@ -75,19 +60,19 @@ nes2 <- bind_rows(lapply(1:nrow(nes), impute_birth_territory, nes))
 rownames(nes2) <- nes2$id 
 
 # create phyloseq object
-ps <- phyloseq(otu_table(seqtab_nochim, taxa_are_rows = FALSE), 
+ps0 <- phyloseq(otu_table(seqtab_nochim, taxa_are_rows = FALSE), 
                sample_data(nes2), 
                tax_table(taxa),
                phy_tree(fitGTR$tree))
 
 # filter out fecal sample
-ps <- subset_samples(ps, id != "17BEMa11Fec")
+ps0 <- subset_samples(ps, id != "17BEMa11Fec")
 
 
 # plotting abundances ------------------------------------------------------------------------------
 
 # plot relative abundances for all samples
-ps_abund <- transform_sample_counts(ps, function(x) x / sum(x))
+ps_abund <- transform_sample_counts(ps0, function(x) x / sum(x))
 plot_bar(ps_abund, fill="Phylum", x = "id")
 
 top20 <- names(sort(taxa_sums(ps_abund), decreasing = TRUE))[1:50]
@@ -115,13 +100,16 @@ plot_bar(ps_abund, fill="Class", x = "id", facet_grid = "sex")
 # filtering ----------------------------------------------------------------------------------------
 
 # which samples have low abundance?
-sort(sample_sums(ps))
+sort(sample_sums(ps0))
 
-# Kingdoms: 2791 Bacteria, 12 Eukaryota, 6 Archaea
-sort(table(prevdf$Kingdom, useNA = "always"), decreasing = TRUE)
+ntaxa(ps0)
+# 8 Chloroplast, 3 Mitochondria, NAs on Class level removed too (77)
+ps <- ps0 %>%
+    subset_taxa(
+        ((Family != "Mitochondria") | is.na(Family)) & (Class  != "Chloroplast")
+    )
+ntaxa(ps)
 
-# filter Eukaryota
-ps <- subset_taxa(ps, Kingdom != "Eukaryota")
 
 # Define prevalence of each taxa
 # (in how many samples did each taxa appear at least once)
@@ -133,12 +121,15 @@ prevdf <- data.frame(Prevalence = prev0,
                      TotalAbundance = taxa_sums(ps),
                      tax_table(ps))
 
+# Kingdoms: 2791 Bacteria, 12 Eukaryota, 6 Archaea
+sort(table(prevdf$Family, useNA = "always"), decreasing = TRUE)
+names(sort(table(prevdf$Family, useNA = "always"), decreasing = TRUE))
 # checks
 prevdf_check <- as_tibble(prevdf)
 hist(prevdf_check$Prevalence, breaks = 100)
 
 # check out how many phyla and whether there are NAs
-sort(table(prevdf$Phylum, useNA = "always"), decreasing = TRUE) # 11 unidentified Phyla --> filter
+sort(table(prevdf$Class, useNA = "always"), decreasing = TRUE) # 11 unidentified Phyla --> filter
 
 
 # prepare prevalence filtering
@@ -154,14 +145,15 @@ prevalenceThreshold
 
 # FILTER 1
 # execute prevalence filter minimum 2% samples (3 samples)
+ntaxa(ps)
 ps1 <- prune_taxa((prev0 > prevalenceThreshold), ps)
 ps1
+ntaxa(ps1)
 
 # FILTER 2
-# entries with unidentified phylum and exclude phyla appearing in less than 3 samples
-ps2 <- subset_taxa(ps1, Phylum %in% names(keepPhyla))
-ps2
-sort(table(tax_table(ps2)[, "Phylum"], exclude = NULL))
+# ps2 <- subset_taxa(ps1, Phylum %in% names(keepPhyla))
+# ps2
+# sort(table(tax_table(ps2)[, "Phylum"], exclude = NULL))
 
 # FILTER 3, either of:
 
@@ -169,8 +161,8 @@ sort(table(tax_table(ps2)[, "Phylum"], exclude = NULL))
 plot(sort(taxa_sums(ps), TRUE), type="h", ylim=c(0, 100))
 
 min_reads <- 30
-ps3 <- filter_taxa(ps2, function(x) sum(x) > min_reads, TRUE)
-
+ps3 <- filter_taxa(ps1, function(x) sum(x) > min_reads, TRUE)
+ntaxa(ps3)
 ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
   geom_hline(yintercept = prevalenceThreshold, alpha = 0.5, linetype = 2) +
   geom_vline(xintercept = min_reads, alpha = 0.5, linetype = 2) +
@@ -181,7 +173,7 @@ ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
   ggtitle("Abundance by Phylum")
 
 
-# plot Abundances and potentially transform --------------------------------------------------------
+# plot Abundances --------------------------------------------------------
 # Taxonomic agglomeration
 # How many genera are present after filtering? 135
 
@@ -207,18 +199,16 @@ plot_abundance(ps3)
 
 # define some extra variables ----------------------------------------------------------------------
 # mark low abundance samples and impute birth territory
-sample_data(ps) <- sample_data(ps) %>% 
-    mutate(abundance = sample_sums(ps) < 5000) 
+sample_data(ps)$abundance <- sample_sums(ps) < 10000
+sample_data(ps3)$abundance <- sample_sums(ps3) < 10000
 
-sample_data(ps3) <- sample_data(ps3) %>% 
-  mutate(abundance = sample_sums(ps3) < 10000) 
+# transformation and ordination --------------------------------------------------------------------
 
-# ordination ---------------------------------------------------------------------------------------
 # which transformation is appropriate?
 qplot(log(rowSums(otu_table(ps3)))) +
     xlab("Logged counts-per-sample")
 
-# variance stabilizing transformation -----------------------------
+# variance stabilizing transformation =========================
 
 # convert to deseq
 nes_dds <- phyloseq_to_deseq2(ps3, ~1)
@@ -229,7 +219,11 @@ nes_dds  <- estimateSizeFactors(nes_dds, type = "poscounts") %>%
 ps_vst <- ps3
 otu_table(ps_vst) <- otu_table(getVarianceStabilizedData(nes_dds), taxa_are_rows = TRUE)
 
-# Ordination sex / time plot ----------------------------------
+# Ordination sex / time plot ==================================
+
+# for plotting
+get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+
 colpal <- c(  "#0000ff", "#ffb14e", "#ea5f94"  )
 colpal <- wes_palette("Moonrise2", 3, type = "discrete")   
 # calculate ordination
@@ -237,24 +231,29 @@ ps_ord <- ordinate(ps_vst, "MDS", "bray")
 # calculate axis length relationships according to eigenvalues
 evals <- ps_ord$values$Eigenvalues
 # get df
+#ps_ord <- ordinate(ps_vst, method = "MDS",distance = "wunifrac")
 plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint")
+
 p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", justDF = TRUE)
 
+#which((p_ord_df$Axis.1 > 0) & (p_ord_df$Axis.2 < 0) & (p_ord_df$sex == "F"))
+#p_ord_df[32, ]
 p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
-    geom_point(size = 3, alpha = 0.8, aes(shape = sex, color = timepoint)) +
+    geom_point(size = 3, alpha = 0.8, aes(shape = sex, fill = timepoint)) +
     #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
     theme_martin() +
     theme(panel.grid = element_blank()) +
-    #scale_shape_manual(values = c(21,2))+
-    scale_color_manual(values = colpal) +
+    scale_shape_manual(values = c(21,24), name = "Sex")+
+    scale_fill_manual(values = colpal, name = "Timepoint") +
     coord_fixed(sqrt(evals[2] / evals[1])) +
     theme(legend.position = "bottom",
           legend.direction = "horizontal") +
-    xlab("Axis 1 [28,4%]") +
-    ylab("Axis 2 [13,3%]")
+    xlab("Axis 1 [28,5%]") +
+    ylab("Axis 2 [13,4%]") +
+    guides(fill=guide_legend(override.aes=list(shape=21)))
     
 p_ord_plot
-# ggsave("../figures/sex_time_MDS.jpg", p_ord_plot, width = 6, height = 4)
+#ggsave("../figures/sex_time_MDS.jpg", p_ord_plot, width = 6, height = 4)
 
 # Ordination outlier plot ----------------------------------
 p_ord_plot_outlier <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
@@ -262,8 +261,9 @@ p_ord_plot_outlier <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
     #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
     theme_martin() +
     theme(panel.grid = element_blank()) +
+    scale_x_discrete(labels = c("")) +
     #scale_shape_manual(values = c(21,2))+
-    scale_color_manual(values = colpal) +
+    #scale_color_manual(values = colpal) +
     coord_fixed(sqrt(evals[2] / evals[1])) +
     theme(legend.position = "bottom",
         legend.direction = "horizontal") +
@@ -272,11 +272,42 @@ p_ord_plot_outlier <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
 
 p_ord_plot_outlier
 
+# Within individual similarity --------------------------------------------------------------------
 
-# repeatability?
-sample_data(ps_vst)$individual <- as.factor(sample_data(ps_vst)$individual)
-p_ord_rpt <- plot_ordination(ps_vst, ps_ord, color = "individual", type = "samples", shape = "sex")
-p_ord_rpt  + geom_polygon(aes(fill=individual), alpha = 0.05) + geom_point(size=5) + ggtitle("samples")
+make_subset_plots <- function(iter, p_ord_df, plotcols) {
+    to_sample <- sample(all_samples, 10)
+    all_samples <<- all_samples[!(all_samples%in%to_sample)]
+    p_ord_df_sub <- filter(p_ord_df, individual %in% to_sample)
+    
+    p_ord_plot_ind <- ggplot(p_ord_df_sub, aes(Axis.1, Axis.2, color = individual)) +
+        geom_point(size = 1, alpha = 0.8) +
+        #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
+        theme_martin() +
+        geom_polygon(aes(fill=individual), alpha = 0.05) +
+        theme(panel.grid = element_blank(),
+            legend.text=element_text(size=7),
+            legend.key.size = unit(0.6,"line"),
+            legend.title = element_blank(),
+            plot.margin = unit(c(-1.1,0.3,-1.1,1), "cm")) +
+        scale_x_continuous(breaks = seq(from = -0.45, to = 0.45, by = 0.2), limits = c(-0.45, 0.45)) +
+        scale_y_continuous(breaks = seq(from = -0.4, to = 0.4, by = 0.2), limits = c(-0.4, 0.4)) +
+        #scale_shape_manual(values = c(21,2))+
+        scale_color_manual(values = plotcols) +
+        coord_fixed(sqrt(evals[2] / evals[1])) +
+       # theme(legend.position = "bottom",
+        #    legend.direction = "horizontal") +
+        xlab("Axis 1 [28,4%]") +
+        ylab("Axis 2 [13,3%]") 
+    p_ord_plot_ind
+}
+all_samples <- unique(p_ord_df$individual)
+set.seed(22)
+plotcols <- sample(c(get_colors("Paired")))
+all_plots <- map(1:4, make_subset_plots, p_ord_df, plotcols)
+
+p_all <- all_plots[[1]] + all_plots[[2]] + all_plots[[3]]  + all_plots[[4]]
+p_all
+#ggsave("../figures/Sup1_mds_by_int.jpg", p_all, width = 10, height = 5)
 
 # alpha diversity ----------------------------------------------------------------------------------
 diversity_df <- estimate_richness(ps, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
@@ -290,60 +321,57 @@ colpal_moonrise <- c("#899DA4",  "#79402E")
 
 #library(tidyr)
 #div_lf <- gather(diversity_df, div_meas, div, c(Observed, Shannon, Simpson, InvSimpson))
-
+set.seed(12)
 p_div <- ggplot(diversity_df, aes(sex, Shannon)) + #colour = sex
-    geom_boxplot(alpha = 1, outlier.shape = NA, aes(colour = sex)) +
-    geom_jitter(size = 3, alpha = 0.6, shape = 21, col = "black", aes(fill = sex), width = 0.3) +
+    geom_boxplot(alpha = 1, outlier.shape = NA) + #, aes(color = sex)
+    geom_jitter(size = 2.7, alpha = 0.6,  col = "black", aes(shape = sex, fill = "grey"), width = 0.3, stroke =0.7) + #shape = 21,
+    scale_shape_manual(values = c(21,24))+
     facet_wrap(~timepoint) +
     theme_martin() +
     ggtitle("Timepoint") +
-    scale_fill_manual(values = colpal_moonrise, name = "Sex") +
-    scale_color_manual(values = colpal_moonrise, name = "Sex") +
+    scale_fill_manual(values =  "grey") +
+    #scale_x_discrete(labels = c(stri_unescape_unicode("\\u2640"), stri_unescape_unicode("\\u2642"))) +
+    #scale_fill_manual(values = colpal_moonrise, name = "Sex") +
+    #scale_color_manual(values = colpal_moonrise, name = "Sex") +
     ylab("Shannon diversity")+
     xlab("Sex")+
-    theme(plot.title = element_text(hjust = 0.5, size = 12),
-          legend.title = )
+    theme(plot.title = element_text(hjust = 0.5, size = 12)) +
+          #axis.text.x = element_text(family = "sans serif")) +
+    guides(fill=FALSE, shape = FALSE) 
+    #scale_x_discrete(labels = stri_unescape_unicode("a\\u0105!\\u0032\\n")) 
 p_div
+ggsave("../figures/diversity.jpg", p_div, width = 5.5, height = 3.4)
 
-# modeling
+# modeling 
 library(lme4)
 library(partR2)
-div_mod <- lmer(Shannon ~ sex + timepoint + (1|id), data = diversity_df)
+div_mod <- lmer(Shannon ~ sex + timepoint   + (1|individual), data = diversity_df)
 summary(div_mod)
-boot_div_mod <- confint(div_mod)
+tidy(div_mod)
+VarCorr(div_mod)
+set.seed(17) 
+boot_div_mod <- confint(div_mod, method = c("boot"), nsim = 1000)
+boot_div_mod
 R2_div <- partGaussian(div_mod, partvars = c("sex", "timepoint"), nboot = 1000)
+rpt_div <- rptGaussian(Shannon ~ sex + timepoint + (1|individual),grname = "individual", data = diversity_df)
 
- # ggsave("../figures/diversity.jpg", p_div, width = 6, height = 3.2)
-
-# barplots
-plot_bar(ps_vst)
-
-# permanova analysis (check pseudoreplication problem)
+# permanova analysis (check pseudoreplication problem) --------------------------------------------
 library(vegan)
-# sex
+# overall effects 
 metadata <- as(sample_data(ps_vst), "data.frame")
-mod_sex <- adonis(phyloseq::distance(ps_vst, method="bray") ~  sex,
-    data = metadata)
-mod_timepoint <- adonis(phyloseq::distance(ps_vst, method="bray") ~  timepoint,
-    data = metadata)
-# timepoint 1 vs 2
-T1T2 <- (!str_detect(sample_names(ps_vst), "T3"))
-ps_vstT1T2 <- prune_samples(T1T2, ps_vst)
-metadata <- as(sample_data(ps_vstT1T2), "data.frame")
-mod_t1t2 <- adonis(phyloseq::distance(ps_vstT1T2, method="bray") ~  timepoint,  strata = metadata$sex,
-    data = metadata)
-# timepoint 2 vs 3
-T2T3 <- str_detect(sample_names(ps_vst), "T")
-ps_vstT2T3 <- prune_samples(T2T3, ps_vst)
-metadata <- as(sample_data(ps_vstT2T3), "data.frame")
-mod_t2t3 <- adonis(phyloseq::distance(ps_vstT2T3, method="bray") ~  timepoint, strata = metadata$sex,
-    data = metadata)
-# timepoint 3 vs 1
-T1T3 <- !str_detect(sample_names(ps_vst), "T2")
-ps_vstT1T3 <- prune_samples(T1T3, ps_vst)
-metadata <- as(sample_data(ps_vstT1T3), "data.frame")
-mod_t1t3 <- adonis(phyloseq::distance(ps_vstT1T3, method="bray") ~  timepoint, strata = metadata$sex,
-    data = metadata)
+mod_full <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual,
+    data = metadata, by = "terms")
+mod_full
+# t1t2
+ps_vst_t1t2 <- subset_samples(ps_vst, timepoint %in% c("T1", "T2"))
+metadata_t1t2 <- as(sample_data(ps_vst_t1t2), "data.frame")
+mod_t1t2 <- adonis(phyloseq::distance(ps_vst_t1t2, method="bray") ~ timepoint + sex + individual,
+    data = metadata_t1t2, by = "terms")
+# t2t3
+ps_vst_t2t3 <- subset_samples(ps_vst, timepoint %in% c("T2", "T3"))
+metadata_t2t3 <- as(sample_data(ps_vst_t2t3), "data.frame")
+mod_t2t3 <- adonis(phyloseq::distance(ps_vst_t2t3, method="bray") ~ timepoint + sex + individual,
+    data = metadata_t2t3, by = "terms")
 
 # individuals, repeatability?
 metadata <- as(sample_data(ps_vst), "data.frame")
@@ -358,30 +386,202 @@ permutest(mod) # Permutation test
 mod <- betadisper(d = phyloseq::distance(ps_vst, method="bray"), group = metadata$timepoint)
 anova(mod)
 TukeyHSD(mod)
+permutest(mod)
+
+# 
+sample_data(ps_vst)$individual <- as.factor(sample_data(ps_vst)$individual)
+p_ord_rpt <- plot_ordination(ps_vst, ps_ord, color = "individual", type = "samples")
+p_ord_rpt  + geom_polygon(aes(fill=individual), alpha = 0.05) + geom_point(size=1) + ggtitle("samples") +
+    theme_martin()
+
+# experimental repeatability for distance matrices -------------------------------------------------
+library(reshape2)
+library(vegan)
+metadata <- as(sample_data(ps_vst), "data.frame")
+mod_ind <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual,
+    data = metadata) # ,  strata = metadata$sex
+mod_df <- as_tibble(mod_ind$aov.tab, rownames="varcomp")
+
+# aov method from the repeatability paper
+groups <- factor(metadata$individual)
+k  <- length(levels(groups))  # number of groups
+N  <- ncol(otu_table(ps_vst)) # number of samples
+# Anova repeatability
+n0 <- 1/(k-1)*(N - sum(table(metadata$individual)^2)/N)
+# mean between ind squares
+MSa <- as.numeric(mod_df[mod_df$varcomp == "individual", "MeanSqs"])
+MSw <- as.numeric(mod_df[mod_df$varcomp == "Residuals", "MeanSqs"])
+# point estimate 0.3516666
+rpt_res <- (MSa - MSw)/ (MSa + (n0 - 1) * MSw)
+# CI      0.1365467 0.5667866
+se  <- sqrt((2*(N-1)*(1-rpt_res)^2 * (1 + (n0-1)*rpt_res)^2) / (n0^2 * (N-k)*(k-1)))
+CI <- 0.95
+rpt_CI <- rpt_res + c(1,-1) * qt((1-CI)/2,k-1)*se 
 
 
-# deseq2 modeling ----------------------------------------------------------------------------------
+# deseq2 modeling (1) -------------------------------------------------------------------------------
 
-#ps_m <- prune_samples(sample_data(ps3)$timepoint %in% c("T1", "T2"), ps3)
+run_deseq_per_sex <- function(sex){
+    # run two models for females and males seperately to account for repeated measures
+    ps_m <- prune_samples(sample_data(ps3)$sex %in% sex, ps3)
+    # create deseq object
+    nes_mod_dds_m <- phyloseq_to_deseq2(ps_m, ~ individual + timepoint)
+    # estimate size factos
+    vst_dds_m <- estimateSizeFactors(nes_mod_dds_m , type = "poscounts")
+    # colData(nes_mod_dds)
+    # see again if groups differ =========
+    #vst_dds_temp <- varianceStabilizingTransformation(vst_dds_m, fitType = "local")
+    #plotPCA(vst_dds_temp, intgroup="group")
+    # deseq analysis    ===========
+    vst_dds <- DESeq(vst_dds_m, test="Wald", fitType="local")
+    #colData(vst_dds)
+    #resultsNames(vst_dds)
+    # Investigate results table
+    get_dds_results_tables <- function(contrast, deseq_analysis_object, alpha) {
+        res <- results(deseq_analysis_object, cooksCutoff = FALSE, contrast)
+        res <- res[order(res$padj, na.last=NA), ]
+        sigtab <- res[which(res$padj < alpha), ]
+        sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(ps3)[rownames(sigtab), ], "matrix"))
+        sigtab <- as_tibble(sigtab)
+        sigtab$comparison <- paste0(contrast[2], "vs" , contrast[3])
+        sigtab
+    }
+    all_contrasts <- list(c("timepoint", "T2", "T1"), c("timepoint", "T3", "T2")) 
+    all_sigtabs <- map_df(all_contrasts,get_dds_results_tables, vst_dds, 0.01)
+    all_sigtabs$sex <- sex
+    all_sigtabs
+}
+
+# run models with data subsetted per sex to be able to control for individuals
+sigtabs_per_sex <- map_df(c("F", "M"), run_deseq_per_sex)
+sigtabs_per_sex$combination <- paste0(sigtabs_per_sex$sex, sigtabs_per_sex$comparison)
+
+
+# releveling and changing NA to Not assigned for plotting
+all_sigtabs_plot <- sigtabs_per_sex %>% 
+    mutate(combination = combination %>% as_factor() %>% 
+            fct_relevel("FT2vsT1", "FT3vsT2", "MT2vsT1", "MT3vsT2")) %>% 
+    tidyr::replace_na(replace = list(Class = "Not assigned", Family = "Not assigned", 
+        Genus = "Not assigned", Order = "Not assigned")) %>% 
+    mutate_at(c("Family", "Genus", "Order"), function(x) {
+        as_factor(x) %>% fct_relevel("Not assigned", after = Inf) %>% fct_rev()
+    }) %>% 
+    mutate_at(c("Class"), function(x) {
+        as_factor(x) %>% fct_relevel("Not assigned", after = 0) %>% fct_rev()
+    })
+
+# save Class levels for later plotting
+class_levels <- levels(all_sigtabs_plot$Class)
+library(RColorBrewer)
+get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+
+set.seed(2049) # 5 / 559 / 1053
+plotcols <- sample(c(get_colors("Paired"), "grey", "black", "white"))
+#plotcols <- c(sample(c(get_colors("Paired"), "grey", "black")),  "white")
+
+# sort colors
+# "#A6CEE3" #lightblue
+    # "#FB9A99" #lightred
+    # "#B2DF8A" #lightgreen
+    # "#B15928" #brown
+    # "#6A3D9A" #purple
+    # "#33A02C" #green
+    # "#FF7F00" #orange
+    # "#CAB2D6" #lightpurple
+# "#E31A1C" #red
+    # "#FFFF99" #yellow
+    # "#FDBF6F" #lightorange
+    # "#1F78B4" #blue
+    # "black"
+# "grey"
+    # "white"
+
+# make a color table
+
+taxa_classes <- as.character(rev(levels(all_sigtabs_plot$Class)))
+taxa_colors <- c("#1F78B4", "#FF7F00", "lightgrey", "#B15928", "#CAB2D6", "#6A3D9A",
+                "black", "#33A02C", "white", "#FB9A99", "#FDBF6F", "#B2DF8A", "#FFFF99", 
+                "#E31A1C", "#A6CEE3")
+names(taxa_colors) <- taxa_classes 
+
+
+dat_text <- data.frame(
+    label = c("","\u2640","","\u2642"),
+    comparison  = factor(c("FT2vsT1", "FT3vsT2", "MT2vsT1", "MT3vsT2")),
+    y = c(Inf, Inf, Inf, Inf),
+    x = c(15,15,15,15)
+)
+
+# create labeller function
+wrap_labels <- c(FT2vsT1 = "T1 => T2", FT3vsT2 = "T2 => T3", MT2vsT1 = "T1 => T2", MT3vsT2 = "T2 => T3")
+
+p_diff_time <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) + 
+    #geom_point(size = 3) + 
+    geom_point(size=3, alpha = 0.7, shape = 21, colour = "black", lwd = 0.1, aes(fill=Class)) + 
+    theme_martin() +
+    facet_wrap(~combination, labeller = labeller(combination = wrap_labels)) +
+    scale_fill_manual(values = taxa_colors) +
+    # limits = unique(rev(all_sigtabs$Family))
+    scale_y_continuous(breaks = seq(from = -30, to = 30, by = 10), limits = c(-35, 35)) +
+    geom_hline(yintercept = 0.0, alpha = 0.5, linetype = 2) +
+    #annotate("text", x = 10, y = 40, label = "\u2642", size = 20, lwd = 3, color = "darkgrey") +
+    coord_flip() +
+    ylab(expression(log[2]~fold~change)) +
+    theme(panel.grid.minor = element_blank(),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(size = 14),
+        axis.title.x = element_text(size = 15),
+       # legend.position = c(0.37, -0.18),
+        plot.margin = margin(b = 5, r = 10, l = 5),
+        legend.text = element_text(size = 13),
+        legend.title = element_text(size = 15),
+        strip.text = element_text(size=15),
+        panel.spacing = unit(1, "lines")
+    ) +
+    guides(fill=guide_legend(
+        reverse = TRUE,
+        #title.position = "left",
+        keywidth=0.1,
+        keyheight=0.1,
+       # nrow = 5,
+        default.unit="inch")) 
+
+    #annotate(geom = "text", x = 15, y = Inf, label = "Some text")
+    # geom_text(
+    #     data    = dat_text,
+    #     mapping = aes(x = x, y = y, label = label),
+    #     size = 20,
+    #     color = "darkgrey"
+    #     #hjust   = -0.1,
+    #     #vjust   = -1
+    # )
+
+p_diff_time_final <- ggdraw(p_diff_time) + 
+    draw_label("\u2642",size = 35, colour = "black", x = 0.476, y = 0.3,lineheight = 5) +
+    draw_label("\u2640",size = 35, colour = "black", x = 0.476, y = 0.75,lineheight = 5) 
+p_diff_time_final 
+ggsave("../figures/timepoint_diff_abund_family.jpg", p_diff_time_final, width = 11, height = 8)
+
+
+
+
+# deseq2 modeling (2) -------------------------------------------------------------------------------
 
 # create factor representing the combination of time and sex
 sample_data(ps3)$group <- factor(paste0(sample_data(ps3)$timepoint, sample_data(ps3)$sex))
-# create DESeq2 object
-nes_mod_dds <- phyloseq_to_deseq2(ps3, ~ group)
-colData(nes_mod_dds)
-# estimate size factos
-vst_dds <- estimateSizeFactors(nes_mod_dds, type = "poscounts")
 
-# see again if groups differ
-#vst_dds_temp <- varianceStabilizingTransformation(vst_dds, fitType = "local")
+nes_mod_dds_sex <- phyloseq_to_deseq2(ps3, ~ group)
+# estimate size factos
+vst_dds_sex <- estimateSizeFactors(nes_mod_dds_sex, type = "poscounts")
+colData(nes_mod_dds_sex)
+# see again if groups differ =========
+#vst_dds_temp <- varianceStabilizingTransformation(vst_dds_sex , fitType = "local")
 #plotPCA(vst_dds_temp, intgroup="group")
 
-# deseq analysis    
-vst_dds <- DESeq(vst_dds, test="Wald", fitType="local")
-
-#colData(vst_dds)
-#resultsNames(vst_dds)
-
+# deseq analysis    ===========
+vst_dds_sex_mod <- DESeq(vst_dds_sex, test="Wald", fitType="local")
+colData(vst_dds_sex_mod)
+resultsNames(vst_dds_sex_mod)
 # Investigate results table
 get_dds_results_tables <- function(contrast, deseq_analysis_object, alpha) {
     res <- results(deseq_analysis_object, cooksCutoff = FALSE, contrast)
@@ -392,11 +592,94 @@ get_dds_results_tables <- function(contrast, deseq_analysis_object, alpha) {
     sigtab$comparison <- paste0(contrast[2], "vs" , contrast[3])
     sigtab
 }
-all_contrasts <- list(c("group", "T2F", "T1F"), c("group", "T3F", "T2F"), 
-                      c("group", "T2M", "T1M"), c("group", "T3M", "T2M"))
 
-all_sigtabs <- map_df(all_contrasts,get_dds_results_tables, vst_dds, 0.001)
+all_contrasts <- list(c("group", "T1F", "T1M"),c("group", "T2F", "T2M"), c("group", "T3F", "T3M")) 
+all_sigtabs <- map_df(all_contrasts,get_dds_results_tables, vst_dds, 0.01)
 
+# releveling and changing NA to Not assigned for plotting
+all_sigtabs_plot <- all_sigtabs %>% 
+    mutate(combination = comparison %>% as_factor()) %>% 
+            #fct_relevel("FT2vsT1", "FT3vsT2", "MT2vsT1", "MT3vsT2")) %>% 
+    tidyr::replace_na(replace = list(Class = "Not assigned", Family = "Not assigned", 
+        Genus = "Not assigned", Order = "Not assigned")) %>% 
+    mutate_at(c("Family", "Genus", "Order"), function(x) {
+        as_factor(x) %>% fct_relevel("Not assigned", after = Inf) %>% fct_rev()
+    }) %>% 
+    mutate_at(c("Class"), function(x) {
+        as_factor(x) %>% fct_relevel("Not assigned", after = 0) %>% fct_rev()
+    })
+get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+
+#set.seed(2049) # 5 / 559 / 1053
+#plotcols <- sample(c(get_colors("Paired"), "grey", "black", "white"))
+#plotcols <- c(sample(c(get_colors("Paired"), "grey", "black")),  "white")
+
+# dat_text <- data.frame(
+#     label = c("","\u2640","","\u2642"),
+#     comparison  = factor(c("FT2vsT1", "FT3vsT2", "MT2vsT1", "MT3vsT2")),
+#     y = c(Inf, Inf, Inf, Inf),
+#     x = c(15,15,15,15)
+# )
+
+# create labeller function
+wrap_labels <- c(T1FvsT1M = "T1: F vs. M", T2FvsT2M = "T2: F vs. M", T3FvsT3M = "T3: F vs. M")
+#levels(all_sigtabs_plot$Class)
+
+p_diff_sex <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) + 
+    #geom_point(size = 3) + 
+    geom_point(size=3, alpha = 0.7, shape = 21, colour = "black", lwd = 0.1, aes(fill=Class)) + 
+    theme_martin() +
+    facet_wrap(~combination, labeller = labeller(combination = wrap_labels)) + #, 
+    scale_fill_manual(values = taxa_colors) +
+    # limits = unique(rev(all_sigtabs$Family))
+    scale_y_continuous(breaks = seq(from = -30, to = 30, by = 10), limits = c(-35, 35)) +
+    geom_hline(yintercept = 0.0, alpha = 0.5, linetype = 2) +
+    #annotate("text", x = 10, y = 40, label = "\u2642", size = 20, lwd = 3, color = "darkgrey") +
+    coord_flip() +
+    ylab(expression(log[2]~fold~change)) +
+    theme(panel.grid.minor = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.title.y = element_text(size = 14),
+        axis.title.x = element_text(size = 15),
+        # legend.position = c(0.37, -0.18),
+        plot.margin = margin(b = 5, r = 10, l = 5),
+        legend.text = element_text(size = 13),
+        legend.title = element_text(size = 15),
+        strip.text = element_text(size=15),
+        panel.spacing = unit(1, "lines")
+    ) +
+    guides(fill=guide_legend(
+        #title.position = "left",
+        reverse = TRUE,
+        keywidth=0.1,
+        keyheight=0.1,
+        # nrow = 5,
+        default.unit="inch")) 
+p_diff_sex
+#annotate(geom = "text", x = 15, y = Inf, label = "Some text")
+# geom_text(
+#     data    = dat_text,
+#     mapping = aes(x = x, y = y, label = label),
+#     size = 20,
+#     color = "darkgrey"
+#     #hjust   = -0.1,
+#     #vjust   = -1
+# )
+
+ggsave("../figures/timepoint_diff_abund_sex.jpg", p_diff_sex, width = 11, height = 5)
+
+
+
+
+
+
+
+
+
+all_sigtabs$sex <- sex
+all_sigtabs
+
+g = ggplotGrob(qplot(1, 1))
 # releveling and changing NA to Not assigned for plotting
 all_sigtabs_plot <- all_sigtabs %>% 
                     mutate(comparison = comparison %>% as_factor() %>% 
