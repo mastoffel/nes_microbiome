@@ -3,6 +3,7 @@ library(inbreedR)
 library(readxl)
 library(stringr)
 library(dplyr)
+library(Demerelate)
 nes <- read_xlsx("../data/raw/elesealgenotypes_12_03.xlsx") 
 
 # delete loci with %
@@ -55,8 +56,22 @@ nes <- nes %>% select_if(!grepl("unclear", names(.)))
 nes[, 2:ncol(nes)] <- lapply(nes[, 2:ncol(nes)], as.integer)
 nes
 
-WriteXLS::WriteXLS(nes, "../data/raw/nes_msats_cleaned.xls")
+# WriteXLS::WriteXLS(nes, "../data/raw/nes_msats_cleaned.xls")
 
+
+library(readxl)
+library(tibble)
+library(dplyr)
+library(Demerelate)
+nes <- readxl::read_xls("../data/raw/nes_msats_cleaned.xls") %>% 
+        add_column(factor(rep("SB", nrow(.))), .after = 1)
+names(nes)[1:2] <- c("Sample-ID", "Population")
+
+nes_rel <- Demerelate(as.data.frame(nes), value= "wang", file.output=FALSE, object = TRUE, pairs = 100)
+hist(unlist(nes_rel$Empirical_Relatedness))
+
+Loci.test(as.data.frame(nes), bt=1000, ref.pop="NA", object=TRUE, value= "wang", file.output=TRUE)
+#Emp.calc(as.data.frame(nes), value="rxy",ref.pop=NA)
 
 # prepare file for related package
 
