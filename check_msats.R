@@ -4,6 +4,10 @@ library(readxl)
 library(stringr)
 library(dplyr)
 library(Demerelate)
+
+
+
+# Part 1: Cleaning raw data ------------------------------------------------------------------------
 nes <- read_xlsx("../data/raw/elesealgenotypes_12_03.xlsx") 
 
 # delete loci with %
@@ -55,64 +59,73 @@ nes <- nes %>% select_if(!grepl("unclear", names(.)))
 # all to integer
 nes[, 2:ncol(nes)] <- lapply(nes[, 2:ncol(nes)], as.integer)
 nes
-
 # WriteXLS::WriteXLS(nes, "../data/raw/nes_msats_cleaned.xls")
 
 
-library(readxl)
-library(tibble)
-library(dplyr)
-library(Demerelate)
-nes <- readxl::read_xls("../data/raw/nes_msats_cleaned.xls") %>% 
-        add_column(factor(rep("SB", nrow(.))), .after = 1)
-names(nes)[1:2] <- c("Sample-ID", "Population")
-
-nes_rel <- Demerelate(as.data.frame(nes), value= "wang", file.output=FALSE, object = TRUE, pairs = 100)
-hist(unlist(nes_rel$Empirical_Relatedness))
-
-Loci.test(as.data.frame(nes), bt=1000, ref.pop="NA", object=TRUE, value= "wang", file.output=TRUE)
-#Emp.calc(as.data.frame(nes), value="rxy",ref.pop=NA)
-
-# prepare file for related package
-
-library(related)
-nes_rel <- coancestry(nes, wang =1)
-nes_rel$relatedness
-
-# simulations
-sim <- familysim(nes_rel$freqs , 100)
-output <- coancestry( sim , wang =1)
-simrel <- cleanuprvals(output$relatedness , 100)
-# plotting
-relvalues <- simrel[, 6]
-label1 <- rep("PO", 100)
-label2 <- rep("Full", 100)
-label3 <- rep("Half", 100)
-label4 <- rep("Unrelated", 100)
-
-labels <- c( label1 , label2 , label3 , label4 )
-plot ( as.factor(labels) , relvalues , ylab =" Relatedness Value ", xlab =" Relatedness ")
-
-Relationship <- labels
-newdata <- as.data.frame(cbind(Relationship , relvalues))
-newdata$relvalues <- as.numeric(as.character(newdata$relvalues))
-
-ggplot(newdata, aes(x= relvalues, by = Relationship, colour = as.factor(Relationship))) + geom_density()
-
-# which estimator is best?
-compareestimators(nes_rel , 100)
-
-test_rel <- coancestry ( GenotypeData , wang =2)
-
-library(inbreedR)
-nes_geno <- convert_raw(nes[2:ncol(nes)])
-g2_microsats(nes_geno)
-hist(sMLH(nes_geno))
-
-plot(sMLH(nes_geno))
-
-nes_het <- data.frame(id = nes$id, het = sMLH(nes_geno)) %>% 
-                arrange(by = het)
 
 
+
+
+# Part 2: HW checking
+
+
+# check HW etc
+library(pacman)
+p_load(Demerelate, dplyr, pegas, ape, seqinr)
+
+nes_msats <- as.data.frame(readxl::read_xls("../data/raw/nes_msats_cleaned.xls"))
+
+gene_start <- 2
+# create file with genotypes stored as "134/140" from two-column per locus format
+change_geno_format <- function(seal_data_df) {
+    loci_names <- names(seal_data_df[gene_start:ncol(seal_data_df)])
+    # filter loci names and remove the allel add-on
+    loci_names <- str_replace_all(loci_names[seq(from = 1, to = length(loci_names), by = 2)], "_a", "")
+    short_geno <- data.frame(matrix(nrow = nrow(seal_data_df), ncol = length(loci_names)))
+    names(short_geno) <- loci_names
+    
+    genotypes <- seal_data_df[, gene_start:ncol(seal_data_df)]
+    length_data <- ncol(genotypes)
+    
+    col_num <- 1
+    for (i in seq(from = 1, to = length_data, by = 2)) {
+        short_geno[col_num] <- paste(genotypes[[i]], genotypes[[i+1]], sep = "/")
+        col_num <- col_num + 1
+    }
+    
+    short_geno[short_geno == "NA/NA"] <- NA
+    geno_out <- cbind(seal_data_df[c(1)], short_geno)
+    geno_out
+}
+
+nes_msats_genind <- change_geno_format(nes_msats)
+
+check_na_genotypes <- function(df) {
+    df[gene_start:ncol(df)] <- lapply(df[gene_start:ncol(df)], function(x) {
+        if (sum(grepl("NA", x))>0) {
+            x[which(grepl("NA", x))] <- NA
+        }
+        x
+    })
+    df
+}
+
+nes_msats_locus_format <- check_na_genotypes(nes_msats_genind)
+
+#save and reload as genind object
+if (dir.exists("output/genind_formatted")) {
+    system(paste("rm -r output/genind_formatted"))
+}
+system("mkdir output/genind_formatted")
+
+write.table(nes_msats_locus_format, file = paste("output/genind_formatted/nes_genind", ".txt", sep = ""
+), sep = " ", quote = FALSE, row.names = FALSE)
+
+nes_msats_pegas <- read.loci(file = paste("output/genind_formatted/nes_genind", ".txt", sep = ""
+),  header = TRUE, loci.sep = " ", allele.sep = "/", col.loci = 2:ncol(nes_msats_locus_format))
+
+# HW test
+nes_hw <- hw.test(nes_msats_pegas, B = 1000)
+nes_hw <- as.data.frame(nes_hw)
+p.adjust(nes_hw$Pr.exact, method = "fdr") # none out of HW
 

@@ -5,6 +5,10 @@ library(pacman)
 p_load(phyloseq, tidyverse, msa, inbreedR, rptR, lme4, DESeq2, 
        dada2, phangorn, wesanderson, grid, cowplot, readxl, RColorBrewer, blogdown)
 library(patchwork)
+library(Demerelate)
+library(vegan)
+library(ecodist)
+library(reshape2)
 source("martin.R")
 #library(microbiomeSeq)
 
@@ -163,15 +167,21 @@ plot(sort(taxa_sums(ps), TRUE), type="h", ylim=c(0, 100))
 min_reads <- 30
 ps3 <- filter_taxa(ps1, function(x) sum(x) > min_reads, TRUE)
 ntaxa(ps3)
-ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
+p_prev <- ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
   geom_hline(yintercept = prevalenceThreshold, alpha = 0.5, linetype = 2) +
   geom_vline(xintercept = min_reads, alpha = 0.5, linetype = 2) +
   geom_point(size = 2, alpha = 0.6) +
-  scale_y_log10() + scale_x_log10() +
+  scale_y_log10() + 
+  scale_x_log10(labels = c(expression(10^1), expression(10^2), expression(10^3), expression(10^4), expression(10^5)), 
+                            breaks = c(10, 100, 1000, 10000, 100000)) +
   xlab("Total Abundance") +
   facet_wrap(~Phylum) +
-  ggtitle("Abundance by Phylum")
+  #ggtitle("Abundance by Phylum") +
+  theme_martin() +
+  guides(color=FALSE)
+p_prev
 
+#ggsave("../figures/Sup1_PrevVsAbund.jpg", p_prev, width = 7, height = 6)
 
 # plot Abundances --------------------------------------------------------
 # Taxonomic agglomeration
@@ -234,7 +244,8 @@ evals <- ps_ord$values$Eigenvalues
 #ps_ord <- ordinate(ps_vst, method = "MDS",distance = "wunifrac")
 plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint")
 
-p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", justDF = TRUE)
+p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", justDF = TRUE,
+    axes = 1:4)
 
 #which((p_ord_df$Axis.1 > 0) & (p_ord_df$Axis.2 < 0) & (p_ord_df$sex == "F"))
 #p_ord_df[32, ]
@@ -253,7 +264,7 @@ p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
     guides(fill=guide_legend(override.aes=list(shape=21)))
     
 p_ord_plot
-#ggsave("../figures/sex_time_MDS.jpg", p_ord_plot, width = 6, height = 4)
+# ggsave("../figures/Fig1_sex_time_MDS.jpg", p_ord_plot, width = 6, height = 4)
 
 # Ordination outlier plot ----------------------------------
 p_ord_plot_outlier <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
@@ -301,13 +312,14 @@ make_subset_plots <- function(iter, p_ord_df, plotcols) {
     p_ord_plot_ind
 }
 all_samples <- unique(p_ord_df$individual)
-set.seed(22)
+set.seed(24)
 plotcols <- sample(c(get_colors("Paired")))
+
 all_plots <- map(1:4, make_subset_plots, p_ord_df, plotcols)
 
 p_all <- all_plots[[1]] + all_plots[[2]] + all_plots[[3]]  + all_plots[[4]]
 p_all
-#ggsave("../figures/Sup1_mds_by_int.jpg", p_all, width = 10, height = 5)
+#ggsave("../figures/Sup2_mds_by_int.jpg", p_all, width = 9, height = 7)
 
 
 # plotting time trends -----------------------------------------------------------------------------
@@ -327,7 +339,7 @@ plot_df <- ps_df %>%
     filter(Class %in% c("Actinobacteria", "Bacilli","Bacteroidia", "Betaproteobacteria",
                         "Clostridia", "Coriobacteriia", "Deferribacteres", "Deltaproteobacteria",
                         "Erysipelotrichia", "Flavobacteriia", "Fusobacteriia", "Gammaproteobacteria",
-                        "Mollicutes",  "Negativicutes", "Spirochaetes", "Epsilonproteobacteria")) %>% 
+                        "Mollicutes",  "Negativicutes", "Spirochaetes", "Epsilonproteobacteria")) %>%
     mutate(Abundance = log(Abundance + 0.001)) 
 
 p_class <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
@@ -347,8 +359,8 @@ p_class <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = 
 
 p_class
 
-ggsave("../figures/classes_time_trends.jpg", p_class, width = 7.5, height = 6.5)
-
+ggsave("../figures/Fig2_classes_time_trends.jpg", p_class, width = 7.5, height = 6.5)
+#ggsave("../figures/Sup3_classes_time_trends_full.jpg", p_class, width = 9.7, height = 7.5)
 
 
 # time trends across Phyla ------------------------------------
@@ -356,8 +368,8 @@ plot_df <- ps_df %>%
     group_by(Sample, Phylum) %>% 
     summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else first(.))) %>% 
     filter(!is.na(timepoint)) %>% 
-    filter(Phylum %in% c("Actinobacteria", "Bacteriodetes", "Deferribacteres", "Firmicutes", "Fusobacteria",
-                        "Proteobacteria", "Spirochaetae", "Tenericutes")) %>% 
+    # filter(Phylum %in% c("Actinobacteria", "Bacteriodetes", "Deferribacteres", "Firmicutes", "Fusobacteria",
+    #                     "Proteobacteria", "Spirochaetae", "Tenericutes")) %>% 
     mutate(Abundance = log(Abundance + 0.001)) 
 
 p_phylum <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
@@ -377,7 +389,7 @@ p_phylum <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape =
 
 p_phylum
 
-ggsave("../figures/phylum_time_trends.jpg", p_phylum, width = 7.5, height = 6.5)
+ggsave("../figures/Sup4_phylum_time_trends.jpg", p_phylum, width = 7.5, height = 6.5)
 
 # time trends across Order--------------------------------------------------------------------
 plot_df <- ps_df %>% 
@@ -388,8 +400,8 @@ plot_df <- ps_df %>%
         "Bacillales", "Bacteroidales", "Burkholderiales", "Campylobacterales",
         "Clostridiales", "Coriobacteriales", "Corynebacteriales", "Desulfovibrionales",
         "Enterobacteriales", "Erysipelotrichales", "Flavobacteriales", "Fusobacteriales",
-        "Lactobacillales", "Mycoplasmatales", "Neisseriales", "Pasteurellales", 
-        "Pseudomonadales", "Rhodospirillaleles", "Selenomonadales", "Spirochaetales")) %>% 
+        "Lactobacillales", "Mycoplasmatales", "Neisseriales", "Pasteurellales",
+        "Pseudomonadales", "Rhodospirillaleles", "Selenomonadales", "Spirochaetales")) %>%
     mutate(Abundance = log(Abundance + 0.001)) 
 
 p_order <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
@@ -405,11 +417,13 @@ p_order <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = 
     scale_shape_manual(values = c(21,24), name = "Sex") +
     scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
     guides(fill = guide_legend(),
-        shape = guide_legend())
+        shape = guide_legend()) +
+    theme(strip.text = element_text(size=9),
+          axis.text = element_text(size = 9))
 
 p_order
 
-ggsave("../figures/order_time_trends.jpg",p_order, width = 7.5, height = 6.5)
+ggsave("../figures/Sup5_order_time_trends.jpg",p_order, width = 8.5, height = 7.5)
 
 
 # alpha diversity ----------------------------------------------------------------------------------
@@ -425,13 +439,15 @@ colpal_moonrise <- c("#899DA4",  "#79402E")
 #library(tidyr)
 #div_lf <- gather(diversity_df, div_meas, div, c(Observed, Shannon, Simpson, InvSimpson))
 set.seed(12)
-p_div <- ggplot(diversity_df, aes(sex, Shannon)) + #colour = sex
-    geom_boxplot(alpha = 1, outlier.shape = NA) + #, aes(color = sex)
-    geom_jitter(size = 2.7, alpha = 0.6,  col = "black", aes(shape = sex, fill = "grey"), width = 0.3, stroke =0.7) + #shape = 21,
+p_div <- ggplot(diversity_df, aes(timepoint, Shannon, by = sex)) + #colour = sex
+    geom_boxplot(alpha = 0.4, outlier.shape = NA, aes(fill = sex)) + #, aes(color = sex)
+    geom_point(position=position_jitterdodge(jitter.width = 0.3), size = 2.3, alpha = 0.8,  
+        col = "black", aes(shape = sex, fill = sex), stroke =0.7) +
+   # geom_jitter(size = 2.3, alpha = 0.8,  col = "black", aes(shape = sex, fill = sex), width = 0.3, stroke =0.7) + #shape = 21,
     #scale_shape_manual(values = c(21,24))+
-    facet_wrap(~timepoint) +
+    #facet_wrap(~timepoint) +
     theme_martin() +
-    ggtitle("Timepoint") +
+   # ggtitle("Timepoint") +
     #scale_fill_manual(values =  "grey") +
     scale_shape_manual(values = c(21,24), name = "Sex") +
     scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
@@ -439,13 +455,11 @@ p_div <- ggplot(diversity_df, aes(sex, Shannon)) + #colour = sex
     #scale_fill_manual(values = colpal_moonrise, name = "Sex") +
     #scale_color_manual(values = colpal_moonrise, name = "Sex") +
     ylab("Shannon diversity")+
-    xlab("Sex")+
-    theme(plot.title = element_text(hjust = 0.5, size = 12)) +
-          #axis.text.x = element_text(family = "sans serif")) +
-    guides(fill=FALSE, shape = FALSE) 
+    xlab("Timepoint")+
+    theme(plot.title = element_text(hjust = 0.5, size = 12))
     #scale_x_discrete(labels = stri_unescape_unicode("a\\u0105!\\u0032\\n")) 
 p_div
-ggsave("../figures/diversity.jpg", p_div, width = 5.5, height = 3.4)
+ggsave("../figures/Fig5_diversity.jpg", p_div, width = 5, height = 3.2)
 
 # modeling 
 library(lme4)
@@ -505,7 +519,7 @@ p_ord_rpt  + geom_polygon(aes(fill=individual), alpha = 0.05) + geom_point(size=
 library(reshape2)
 library(vegan)
 metadata <- as(sample_data(ps_vst), "data.frame")
-mod_ind <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual,
+mod_ind <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint +  sex + individual,
     data = metadata) # ,  strata = metadata$sex
 mod_df <- as_tibble(mod_ind$aov.tab, rownames="varcomp")
 
@@ -785,22 +799,39 @@ ggsave("../figures/timepoint_diff_abund_sex.jpg", p_diff_sex, width = 11, height
 
 
 
+
+
 # gut microbiota and relatedness -------------------------------------------------------------------
-library(Demerelate)
-library(vegan)
-library(ecodist)
-library(reshape2)
+
+# microsatellites preparation
 nes_msats <- readxl::read_xls("../data/raw/nes_msats_cleaned.xls") %>% 
     add_column(factor(rep("SB", nrow(.))), .after = 1)
 names(nes_msats)[1:2] <- c("Sample-ID", "Population")
+nes_msats <- data.frame(nes_msats)
+str(nes_msats)
 
-# wang estimator performs well for small sample sizes and polymorphic loci (see paper)
-# test whether number of loci is enough
-#Loci.test(as.data.frame(nes), bt=1000, ref.pop="NA", object=TRUE, value= "wang", file.output=TRUE)
-nes_rel <- Demerelate(as.data.frame(nes_msats), value= "morans", file.output=FALSE,  #loiselle
+# test whether number of loci is enough -----------------------------------
+rel_test <- Loci.test(nes_msats, bt=1000, object=TRUE, value= "loiselle", file.output=TRUE)
+rel_means <- unlist(lapply(rel_test, mean))
+yplus <- rel_means + unlist(lapply(rel_test, sd))
+yminus <- rel_means - unlist(lapply(rel_test, sd))
+rel_test_df <- data.frame(rel_mean = rel_means, lower_sd = yminus, upper_sd = yplus, loci = c(1:21))
+
+p_rel_test <- ggplot(rel_test_df, aes(loci, rel_mean)) +
+    geom_pointrange(aes(ymin = yminus, ymax = yplus), fatten = 8, alpha = 1, fill = "lightgrey", shape=21) +
+    theme_martin() +
+    ylab("Mean difference in relatedness") +
+    xlab("Number of loci") +
+    scale_x_continuous(breaks = c(1, 5, 10, 15, 20))
+p_rel_test
+#ggsave("../figures/Sup6_rel_test.jpg",p_rel_test, width = 5, height = 3.5)
+
+# (1) relatedness estimation ----------------------------------------------
+nes_rel <- Demerelate(as.data.frame(nes_msats), value= "loiselle", file.output=FALSE,  #loiselle
                       object = TRUE, pairs = 100)
 
 hist(unlist(nes_rel$Empirical_Relatedness))
+
 # Format 
 nes_rel_pair_names <- names(unlist(nes_rel[[2]])) %>% 
                         str_replace("SB.", "") %>% 
@@ -811,24 +842,15 @@ nes_rel_pair_names <- names(unlist(nes_rel[[2]])) %>%
 nes_rel_df <- data.frame("ind1" = nes_rel_pair_names[[1]], "ind2" = nes_rel_pair_names[[2]], 
                         "rel" = as.numeric(unlist(nes_rel$Empirical_Relatedness)))
 
-#as.dist(nes_rel_df)
-
-# Calculate microbial distances
-
-calc_cor_rel_mic <- function(topx, ps3) {
-    
-# find most abundant taxa
-ps_rel <- transform_sample_counts(ps3, function(x) x/sum(x))
-topXX <- names(sort(taxa_sums(ps_rel), decreasing = TRUE))[1:topx]
-ps_topXXX <- prune_taxa(topXX, ps3)
-
+# microbial distances estimation
 
 # merge samples coming from one individual
 #ps_merged <- subset_samples(ps3, sex == "M")
-ps_merged <- merge_samples(ps_topXXX, "individual", fun = mean)
+ps_merged <- merge_samples(ps3, "individual", fun = mean)
+
 # ps_merged <- subset_taxa(ps_merged, Order %in% c("Bacteroidales", "Clostridiales"))
 # convert to deseq
-ps_merged_dds <- phyloseq_to_deseq2(ps_merged , ~1) # here ps_merged
+ps_merged_dds <- phyloseq_to_deseq2(ps_merged, ~ 1) # here ps_merged
 # estimate size factors with not including 0 in geometric mean calc
 ps_merged_dds <- estimateSizeFactors(ps_merged_dds, type = "poscounts") %>% 
     estimateDispersions(fitType = "local")
@@ -836,24 +858,42 @@ ps_merged_dds <- estimateSizeFactors(ps_merged_dds, type = "poscounts") %>%
 ps_merged_vst <- ps3
 otu_table(ps_merged_vst) <- otu_table(getVarianceStabilizedData(ps_merged_dds), taxa_are_rows = TRUE)
 
-# subset Males
-ps_merged_vst_sub  <- subset_samples(ps_merged_vst, (sex == "M" ))
-# calculate bray curtis dissimilarity
-nes_mic_dist <- phyloseq::distance(ps_merged_vst_sub, method = "bray")
-labels(nes_mic_dist)
+# create dataframe for each sex and combine for plotting
+get_dist_df <- function(sub_sex, ps){
+    # subset Males
+  #  ps_merged_vst_sub  <- subset_samples(ps, (sex == sub_sex))
+    ps_merged_vst_sub <- prune_samples(sample_data(ps)$sex == sub_sex, ps)
+    # calculate bray curtis dissimilarity
+    nes_mic_dist <- phyloseq::distance(ps_merged_vst_sub, method = "bray")
+    labels(nes_mic_dist)
+    # create df
+    nes_mic_dist_df <- melt(as.matrix(nes_mic_dist), varnames = c("ind1", "ind2")) %>% 
+        mutate(ind1 = str_replace(ind1, "T3", "")) %>% 
+        mutate(ind2 = str_replace(ind2, "T3", "")) 
+    # create joint df with microbial and genetic distance
+    both_dist_df <- inner_join(nes_mic_dist_df, nes_rel_df, by = c("ind1" = "ind1", "ind2" = "ind2")) %>%
+        mutate(sex = sub_sex)
+    # mutate(rel_classes = cut(rel, breaks = quantile(rel, probs = seq(0, 1, 0.15))))
+}
 
+sex_distances <- map_df(c("F", "M"), get_dist_df, ps_merged_vst)
 
-nes_mic_dist_df <- melt(as.matrix(nes_mic_dist), varnames = c("ind1", "ind2")) %>% 
-                        mutate(ind1 = str_replace(ind1, "T3", "")) %>% 
-                        mutate(ind2 = str_replace(ind2, "T3", "")) 
-
-
-both_dist_df <- inner_join(nes_mic_dist_df, nes_rel_df, by = c("ind1" = "ind1", "ind2" = "ind2")) %>% 
-                    mutate(rel_classes = cut(rel, breaks = quantile(rel, probs = seq(0, 1, 0.15))))
-
-#ggplot(both_dist_df, aes(rel, value)) + 
-#            geom_point(size = 3, alpha = 0.5) +
-#            geom_smooth(method = "lm")
+p_rel <- ggplot(sex_distances , aes(rel, value)) +
+           geom_point(size = 2, alpha = 0.5, aes(shape = sex, fill = sex)) +
+           geom_smooth(method = "lm", se = FALSE, aes(color = sex)) +
+           facet_wrap(~sex) +
+           theme_martin() +
+           scale_shape_manual(values = c(21,24), name = "Sex") +
+           scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
+           scale_color_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
+           xlab("Genetic relatedness") +
+           ylab("Bray-Curtis dissimilarity") +
+           theme( strip.background = element_blank(),
+               strip.text.x = element_blank(), 
+               panel.spacing = unit(2, "lines")) 
+           
+p_rel
+#ggsave("../figures/Fig6_relatedness.jpg", p_rel, width = 7, height = 3)
 
 # nes_males <- unique(unlist(both_dist_df[c(1,2)]))
 # dist_mat <- matrix(nrow = length(nes_males), ncol = length(nes_males), dimnames = list(nes_males, nes_males))
@@ -861,7 +901,7 @@ both_dist_df <- inner_join(nes_mic_dist_df, nes_rel_df, by = c("ind1" = "ind1", 
 create_distmat <- function(dist_df, sample_var1, sample_var2, value_var) {
     unique_ids <- unique(unlist(dist_df[c(sample_var1, sample_var2)]))
     dist_mat <- matrix(nrow = length(unique_ids), ncol = length(unique_ids), 
-                dimnames = list(unique_ids, unique_ids))
+        dimnames = list(unique_ids, unique_ids))
     
     for (i in 1:nrow(dist_df)) {
         x <- dist_df[i, ]
@@ -871,17 +911,108 @@ create_distmat <- function(dist_df, sample_var1, sample_var2, value_var) {
     t(dist_mat)
 }
 
+# calculate mantel test seperately for the two sexes
+both_dist_df <- filter(sex_distances, sex == "F")
+
 distmat_microbes <- as.dist(1 - create_distmat(both_dist_df, "ind1", "ind2", "value"))
 distmat_msats <- as.dist(create_distmat(both_dist_df, "ind1", "ind2", "rel"))
 
 mantel_test <- ecodist::mantel(formula =  distmat_microbes ~ distmat_msats, 
-                               mrank = FALSE, pboot = 0.7, nperm = 10000, nboot = 10000)
-out <- data.frame(t(mantel_test), "topX" = topx)
+    mrank = FALSE, pboot = 0.7, nperm = 10000, nboot = 10000)
+
+# M: mantelr = 0.2623, CI 0.05882922 0.41531428, p two tailed = 0.00090000
+# F: mantelr = 0.0588, CI -0.0676119  0.2006059 , p two tailed = 0.4209000
+mantel_test 
+
+
+
+# how many substances explain relatedness ?
+
+calc_cor_rel_mic <- function(topx, ps3) {
+    
+    # find most abundant taxa
+    # ps_rel <- transform_sample_counts(ps3, function(x) log(x))
+    # topXX <- names(sort(taxa_sums(ps_rel), decreasing = TRUE))[1:topx]
+    # ps_topXXX <- prune_taxa(topXX, ps3)
+    
+    # merge samples coming from one individual
+    #ps_merged <- subset_samples(ps3, sex == "M")
+    ps_merged <- merge_samples(ps3, "individual", fun = mean)
+    # ps_merged <- subset_taxa(ps_merged, Order %in% c("Bacteroidales", "Clostridiales"))
+    # convert to deseq
+    ps_merged_dds <- phyloseq_to_deseq2(ps_merged , ~1) # here ps_merged
+    # estimate size factors with not including 0 in geometric mean calc
+    ps_merged_dds <- estimateSizeFactors(ps_merged_dds, type = "poscounts") %>% 
+        estimateDispersions(fitType = "local")
+    # create new phyloseq object with variance stabilised ASV table
+    ps_merged_vst <- ps3
+    otu_table(ps_merged_vst) <- otu_table(getVarianceStabilizedData(ps_merged_dds), taxa_are_rows = TRUE)
+    
+    # subset Males
+    ps_merged_vst_sub  <- subset_samples(ps_merged_vst, (sex == "F" ))
+    
+    # subset most abundant
+    topXX <- names(sort(taxa_sums(ps_merged_vst_sub), decreasing = TRUE))[1:topx]
+    ps_merged_vst_sub <- prune_taxa(topXX, ps_merged_vst_sub)
+    
+    # calculate bray curtis dissimilarity
+    nes_mic_dist <- phyloseq::distance(ps_merged_vst_sub, method = "bray")
+    labels(nes_mic_dist)
+    
+    
+    nes_mic_dist_df <- melt(as.matrix(nes_mic_dist), varnames = c("ind1", "ind2")) %>% 
+                            mutate(ind1 = str_replace(ind1, "T3", "")) %>% 
+                            mutate(ind2 = str_replace(ind2, "T3", "")) 
+    
+    
+    both_dist_df <- inner_join(nes_mic_dist_df, nes_rel_df, by = c("ind1" = "ind1", "ind2" = "ind2")) %>% 
+                        mutate(rel_classes = cut(rel, breaks = quantile(rel, probs = seq(0, 1, 0.15))))
+    
+    #ggplot(both_dist_df, aes(rel, value)) + 
+    #            geom_point(size = 3, alpha = 0.5) +
+    #            geom_smooth(method = "lm")
+    
+    # nes_males <- unique(unlist(both_dist_df[c(1,2)]))
+    # dist_mat <- matrix(nrow = length(nes_males), ncol = length(nes_males), dimnames = list(nes_males, nes_males))
+    
+    create_distmat <- function(dist_df, sample_var1, sample_var2, value_var) {
+        unique_ids <- unique(unlist(dist_df[c(sample_var1, sample_var2)]))
+        dist_mat <- matrix(nrow = length(unique_ids), ncol = length(unique_ids), 
+                    dimnames = list(unique_ids, unique_ids))
+        
+        for (i in 1:nrow(dist_df)) {
+            x <- dist_df[i, ]
+            dist_mat[x[[sample_var1]], x[[sample_var2]]]  <- x[[value_var]]
+        }
+        
+        t(dist_mat)
+    }
+    
+    distmat_microbes <- as.dist(1 - create_distmat(both_dist_df, "ind1", "ind2", "value"))
+    distmat_msats <- as.dist(create_distmat(both_dist_df, "ind1", "ind2", "rel"))
+    
+    mantel_test <- ecodist::mantel(formula =  distmat_microbes ~ distmat_msats, 
+                                   mrank = FALSE, nperm = 10000, nboot = 10000)
+    out <- data.frame(t(mantel_test), "topX" = topx)
 }
+out <- map_df(seq(from = 4, to = 1063, by = 2), calc_cor_rel_mic, ps3)
+out_f <- out
+out_m <- out
 
+mantel_subset_df <- rbind(out_f, out_m) %>% 
+                mutate(sex = c(rep("F", nrow(.)/2 ), rep("M", nrow(.)/2)))
+#save(mantel_subset_df, file = "output/mantel_subset_test.RData")
+p_rel_sub <- ggplot(mantel_subset_df, aes(topX, mantelr, fill = sex, shape = sex, color = sex, by = sex)) +
+    geom_pointrange(aes(ymin = llim.2.5., ymax = ulim.97.5.), fatten = 15, size = 0.1, alpha = 0.8) +
+    theme_martin() +
+    ylab("Mantel r") +
+    xlab("Number of most abundant bacterial taxa") +
+    scale_shape_manual(values = c(21,24), name = "Sex") +
+    scale_color_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
+    scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
+    scale_x_continuous(breaks = c(2, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1064))
 
-out <- map_df(seq(from = 5, to = 100, by = 5), calc_cor_rel_mic, ps3)
-
+ggsave("../figures/Fig7_relatedness_subset.jpg", p_rel_sub, width = 5.6, height = 4)
 
 plot(out$mantelr, out$topx)
 
