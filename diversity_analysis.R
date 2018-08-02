@@ -16,6 +16,7 @@ library(magrittr)
 library(kableExtra)
 #library(microbiomeSeq)
 
+
 # Prepare and load data ----------------------------------------------------------------------------
 
 # input folder
@@ -51,7 +52,7 @@ nes <- left_join(nes_df, nes_sampling, by = "id") %>%
           arrange(timepoint) %>% 
           mutate(id = fct_inorder(id))
 
-# rownames have to match SVG table
+# rownames have to match ASV table
 rownames(nes) <- nes$id 
 
 # add birth territory variable
@@ -75,6 +76,7 @@ ps0 <- phyloseq(otu_table(seqtab_nochim, taxa_are_rows = FALSE),
 
 # filter out fecal sample
 ps0 <- subset_samples(ps0, id != "17BEMa11Fec")
+
 
 
 # plotting abundances ------------------------------------------------------------------------------
@@ -187,7 +189,14 @@ p_prev
 
 #ggsave("../figures/Sup1_PrevVsAbund.jpg", p_prev, width = 7, height = 6)
 
-# plot Abundances --------------------------------------------------------
+# Microbiome composition ---------------------------------------------------------------------------
+
+# relative abundances
+ps_rel <- transform_sample_counts(ps3, function(x) x / sum(x) )
+
+
+
+# plot broad Abundances --------------------------------------------------------
 # Taxonomic agglomeration
 # How many genera are present after filtering? 135
 
@@ -233,7 +242,7 @@ names(OTUdf)
 ps_rel <- microbiome::transform(ps3, "compositional")
 
 # Core Microbiome for each timepoint
-core_microbiome <- function(timpoint, ps) {
+core_microbiome <- function(timepoint, ps) {
     # ps_rel_t1 <- subset_samples(ps_rel, timepoint == "T1")
     ps_tp <- prune_samples(sample_data(ps)$timepoint %in% timepoint, ps)
     # get core microbiome (prevalence = 90%)
@@ -258,34 +267,25 @@ names(core_across_time) <- all_timepoints
 sapply(all_timepoints, function(x) write_excel_csv(core_across_time[[x]], 
                                    path = paste0("../data/processed/core_microbiome_", x, ".txt")))
 
-# second table with complete sequence
-# tp_asv_table <- data.frame(ASV = paste0("ASV", seq(1:nrow(tp_tax_table))), 
-#                 Sequence = tp_tax_table$ASV, stringsAsFactors = FALSE)
-
-# change ASV variable to short names for first table
-tp_tax_table %<>% 
-    mutate(ASV = paste0("ASV", seq(1:nrow(.))))
-
-# split ASV sequences into multiple lines ----------------------------------------------------------
-slice <- function(input, by= 4) { 
-    strlen <- str_length(input) 
-    split_end <- seq(from= 0, to = strlen, by = strlen %/% by)[c(-1)] +1
-
-    input_split <- unlist(strsplit(input, split=""))
-    split_end[length(split_end)] <- length(input_split)
-    split_start <- c(1, split_end[-length(split_end)] + 1)
-    
-    # split input, add new line and concatenate again
-    input_split2 <- purrr::map2(split_start, split_end, function(x,y) {
-                                            out <- c(input_split[x:y], "\n") # \n
-    })
-    input_split3 <- unlist(input_split2)
-    input_split4 <- stringr::str_c(input_split3[-length(input_split3)], collapse = "")
-}
-
-tp_asv_table$Sequence <- sapply(tp_asv_table$Sequence, slice, by = 4)
-tp_asv_table <- tp_asv_table %>% 
-    mutate_all(linebreak)
+# split ASV sequences into multiple lines for table plotting (not used ATM) ------------------------
+# slice <- function(input, by= 4) { 
+#     strlen <- str_length(input) 
+#     split_end <- seq(from= 0, to = strlen, by = strlen %/% by)[c(-1)] +1
+# 
+#     input_split <- unlist(strsplit(input, split=""))
+#     split_end[length(split_end)] <- length(input_split)
+#     split_start <- c(1, split_end[-length(split_end)] + 1)
+#     
+#     # split input, add new line and concatenate again
+#     input_split2 <- purrr::map2(split_start, split_end, function(x,y) {
+#                                             out <- c(input_split[x:y], "\n") # \n
+#     })
+#     input_split3 <- unlist(input_split2)
+#     input_split4 <- stringr::str_c(input_split3[-length(input_split3)], collapse = "")
+# }
+# tp_asv_table$Sequence <- sapply(tp_asv_table$Sequence, slice, by = 4)
+# tp_asv_table <- tp_asv_table %>% 
+#     mutate_all(linebreak)
 
 # linesep = c("\\addlinespace") # "\\hline"
 # kable(tp_asv_table, format = "latex", booktabs = TRUE, escape = F, align = "l",
@@ -293,13 +293,24 @@ tp_asv_table <- tp_asv_table %>%
 #     column_spec(2, width = "30cm") %>% 
 #     kable_as_image("core_tp_asv", keep_pdf = TRUE, file_format = "jpeg")
 
-linesep = c("") 
+
+
+
+# Core microbiome tables ---------------------------------------------------------------------------
+linesep <- c("") 
+
 # core microbiome table
-kable(tp_tax_table, format = "latex", booktabs = TRUE, escape = T, linesep = linesep,
-    align = "l") %>% 
-    kable_styling(latex_options = c( "scale_down")) %>% 
-    row_spec(0, bold = T) %>% 
-    kable_as_image("../tables/core_tp", keep_pdf = TRUE, file_format = "jpeg")
+for (i in all_timepoints) {
+    core_timepoint <- dplyr::select(core_across_time[[i]], -ASV)
+    kable(core_timepoint, format = "latex", booktabs = TRUE, escape = T, linesep = linesep,
+        align = "l") %>% 
+        kable_styling(latex_options = c( "scale_down")) %>% 
+        row_spec(0, bold = T) %>% 
+        kable_as_image(paste0("../tables/core_microbiome_", i), keep_pdf = TRUE, file_format = "jpeg")
+    
+}
+
+
 
 
 
@@ -425,13 +436,15 @@ length(unique(ps_df$OTU))
 # time trends across Classes ----------------------------------------------------------
 plot_df <- ps_df %>% 
     group_by(Sample, Class) %>% 
-    summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else first(.))) %>% 
-    filter(!is.na(timepoint)) %>% 
-    filter(Class %in% c("Actinobacteria", "Bacilli","Bacteroidia", "Betaproteobacteria",
-                        "Clostridia", "Coriobacteriia", "Deferribacteres", "Deltaproteobacteria",
-                        "Erysipelotrichia", "Flavobacteriia", "Fusobacteriia", "Gammaproteobacteria",
-                        "Mollicutes",  "Negativicutes", "Spirochaetes", "Epsilonproteobacteria")) %>%
-    mutate(Abundance = log(Abundance + 0.001)) 
+    dplyr::summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else dplyr::first(.))) %>% 
+    dplyr::filter(!is.na(timepoint)) %>% 
+    dplyr::filter(Abundance > 0.0001) %>% 
+   dplyr::filter(Class %in% c("Actinobacteria", "Bacilli","Bacteroidia", "Betaproteobacteria",
+                       "Clostridia", "Coriobacteriia", "Deferribacteres", "Deltaproteobacteria",
+                       "Erysipelotrichia", "Flavobacteriia", "Fusobacteriia", "Gammaproteobacteria",
+                       "Mollicutes",  "Negativicutes", "Spirochaetes", "Epsilonproteobacteria")) %>%
+   #mutate(Abundance = log(Abundance + 0.001))
+    mutate(Abundance = log(Abundance)) 
 
 p_class <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
     geom_boxplot(alpha = 0.6, outlier.shape = NA) +
@@ -457,11 +470,13 @@ ggsave("../figures/Fig2_classes_time_trends.jpg", p_class, width = 7.5, height =
 # time trends across Phyla ------------------------------------
 plot_df <- ps_df %>% 
     group_by(Sample, Phylum) %>% 
-    summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else first(.))) %>% 
+    summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else dplyr::first(.))) %>% 
     filter(!is.na(timepoint)) %>% 
+    dplyr::filter(Abundance > 0.0001) %>% 
+    mutate(Abundance = log(Abundance)) 
     # filter(Phylum %in% c("Actinobacteria", "Bacteriodetes", "Deferribacteres", "Firmicutes", "Fusobacteria",
-    #                     "Proteobacteria", "Spirochaetae", "Tenericutes")) %>% 
-    mutate(Abundance = log(Abundance + 0.001)) 
+    #                      "Proteobacteria", "Spirochaetae", "Tenericutes")) # %>% 
+   # mutate(Abundance = log(Abundance + 0.001)) 
 
 p_phylum <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
     geom_boxplot(alpha = 0.6, outlier.shape = NA) +
@@ -485,15 +500,16 @@ ggsave("../figures/Sup4_phylum_time_trends.jpg", p_phylum, width = 7.5, height =
 # time trends across Order--------------------------------------------------------------------------
 plot_df <- ps_df %>% 
     group_by(Sample, Order) %>% 
-    summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else first(.))) %>% 
+    summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else dplyr::first(.))) %>% 
     filter(!is.na(timepoint)) %>% 
+    dplyr::filter(Abundance > 0.0001) %>% 
     filter(Order %in% c("Actinomycetales", "Aeromonodales", "Anaeroplasmatales",
         "Bacillales", "Bacteroidales", "Burkholderiales", "Campylobacterales",
         "Clostridiales", "Coriobacteriales", "Corynebacteriales", "Desulfovibrionales",
         "Enterobacteriales", "Erysipelotrichales", "Flavobacteriales", "Fusobacteriales",
         "Lactobacillales", "Mycoplasmatales", "Neisseriales", "Pasteurellales",
         "Pseudomonadales", "Rhodospirillaleles", "Selenomonadales", "Spirochaetales")) %>%
-    mutate(Abundance = log(Abundance + 0.001)) 
+    mutate(Abundance = log(Abundance)) 
 
 p_order <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
     geom_boxplot(alpha = 0.6, outlier.shape = NA) +
@@ -515,6 +531,7 @@ p_order <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = 
 p_order
 
 ggsave("../figures/Sup5_order_time_trends.jpg",p_order, width = 8.5, height = 7.5)
+
 
 
 # alpha diversity ----------------------------------------------------------------------------------
