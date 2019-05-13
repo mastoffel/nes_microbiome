@@ -70,11 +70,13 @@ summarize_taxa = function(physeq, Rank, GroupBy = NULL){
         mdt <- sdt[mdt]
     }
     # Summarize, take mean of relative abundances without 0 entries
-    Nsamples = nsamples(physeq)
-    summarydt = mdt[, list(meanRA = sum(RelativeAbundance)/Nsamples, # /Nsamples
+    Nsamples <- nsamples(physeq)
+    
+    summarydt = mdt[, list(meanRA = sum(RelativeAbundance)/Nsamples,
         sdRA = sd(RelativeAbundance),
         minRA = min(RelativeAbundance),
-        maxRA = max(RelativeAbundance)),
+        maxRA = max(RelativeAbundance),
+        count = .N),
         by = c(Rank, GroupBy)]
     
     return(summarydt)
@@ -113,6 +115,6 @@ plot_taxa_summary = function(physeq, Rank, GroupBy = NULL){
 }
 
 # Tes
-plot_taxa_summary(ps3, "Phylum", "timepoint")
-test <- summarize_taxa(ps3, "Phylum", "timepoint")
-sum(test$meanRA)
+# plot_taxa_summary(ps3, "Phylum", "timepoint")
+# test <- summarize_taxa(ps3, "Phylum", "timepoint")
+# sum(test$meanRA)

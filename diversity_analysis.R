@@ -78,24 +78,6 @@ ps0 <- phyloseq(otu_table(seqtab_nochim, taxa_are_rows = FALSE),
 ps0 <- subset_samples(ps0, id != "17BEMa11Fec")
 
 
-
-# plotting abundances ------------------------------------------------------------------------------
-
-# plot relative abundances for all samples
-ps_abund <- transform_sample_counts(ps0, function(x) x / sum(x))
-plot_bar(ps_abund, fill="Phylum", x = "id")
-
-top20 <- names(sort(taxa_sums(ps_abund), decreasing = TRUE))[1:50]
-# ps_top20 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
-ps_top20 <- prune_taxa(top20, ps)
-plot_bar(ps_abund, fill="Class", x = "id")
-
-ps_abund <- transform_sample_counts(ps, function(x) x / sum(x))
-topXX <- names(sort(taxa_sums(ps_abund), decreasing = TRUE))[1:50]
-ps_top <- prune_taxa(topXX, ps_abund)
-plot_bar(ps_abund, fill="Class", x = "id", facet_grid = "sex") 
-
-
 # overview over phyloseq options -------------------------------------------------------------------
 #ps
 #ntaxa(ps)
@@ -121,7 +103,7 @@ ps <- ps0 %>%
 ntaxa(ps)
 
 
-# Define prevalence of each taxa
+# Define prevalence of each taxon
 # (in how many samples did each taxa appear at least once)
 prev0 <- apply(X = otu_table(ps),
                 MARGIN = ifelse(taxa_are_rows(ps), yes = 1, no = 2),
@@ -173,6 +155,8 @@ plot(sort(taxa_sums(ps), TRUE), type="h", ylim=c(0, 100))
 min_reads <- 30
 ps3 <- filter_taxa(ps1, function(x) sum(x) > min_reads, TRUE)
 ntaxa(ps3)
+
+
 p_prev <- ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
   geom_hline(yintercept = prevalenceThreshold, alpha = 0.5, linetype = 2) +
   geom_vline(xintercept = min_reads, alpha = 0.5, linetype = 2) +
@@ -185,17 +169,123 @@ p_prev <- ggplot(prevdf1, aes(TotalAbundance, Prevalence, color = Phylum)) +
   #ggtitle("Abundance by Phylum") +
   theme_martin() +
   guides(color=FALSE)
-p_prev
+# p_prev
 
 #ggsave("../figures/Sup1_PrevVsAbund.jpg", p_prev, width = 7, height = 6)
 
 # Microbiome composition ---------------------------------------------------------------------------
 
-# relative abundances
+# plotting abundances -----------------------
+
+# plot relative abundances for all samples
 ps_rel <- transform_sample_counts(ps3, function(x) x / sum(x) )
+#plot_bar(ps_rel, x = "id", fill="Phylum") +
+#    theme(axis.text = element_text(size = 3))
+
+# summarize taxa
+source("microbiome_composition_funs.R")
+library(forcats)
+RAs <- summarize_taxa(ps3, "Phylum") %>% 
+    arrange(desc(meanRA)) %>% 
+    mutate(Phylum = fct_inorder(Phylum)) %>% 
+    filter(count > 1500)
+
+ggplot(RAs, aes(Phylum, meanRA)) +
+    geom_point(alpha = 1, size = 2) +
+    geom_errorbar(aes(ymin = meanRA-sdRA, ymax = meanRA+sdRA), width = 0.1) +
+    theme_martin() +
+    theme(axis.text = element_text(angle = 90)) +
+    ylab("Relative abundance")
 
 
+calc_RAs_across_time <- function (timepoint, physeq, Rank) {
+    if (timepoint != "all") {
+        ps <- prune_samples(sample_data(physeq)$timepoint == timepoint, physeq)
+    } else {
+        ps <- physeq
+    }
+    
+   # Rank <- enquo(Rank)
+    Rank_quo <- enquo(Rank)
+    out <- ps %>% 
+        summarize_taxa(Rank) %>% 
+        as_tibble() %>% 
+        arrange(desc(meanRA)) %>%
+        filter(count > 200) %>%
+        mutate(timepoint = timepoint)
+}
 
+Rank <- "Phylum"
+all_RAs <- bind_rows(lapply(c("all", "T1", "T2", "T3"), calc_RAs_across_time, ps3, Rank = Rank)) %>% 
+               dplyr::mutate(Phylum = fct_inorder(factor(Phylum)))
+
+colpal <- c("grey", wes_palette("Moonrise2", 4, type = "discrete"))
+
+p_comp <- ggplot(all_RAs, aes(Phylum, meanRA, fill = timepoint, col = timepoint, alpha = timepoint)) +
+    geom_errorbar(aes(ymin = meanRA-sdRA, ymax = meanRA+sdRA), width = 0.0,
+        position=position_dodge(width=0.5), alpha = 1, lwd = 0.3) +
+    geom_point(size = 2.5, shape = 21, colour = "black", lwd = 0.1, position=position_dodge(width=0.5)) +
+    theme_martin() +
+    scale_alpha_manual(values = c(1, 0.6, 0.6, 0.6), name = "Timepoint") +
+    scale_fill_manual(values = colpal, name = "Timepoint") +
+    scale_color_manual(values = colpal, name = "Timepoint") +
+    scale_x_discrete(limits = rev(levels(all_RAs$Phylum))) +
+    theme(plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+          axis.title = element_text(margin = margin(t = 20, r = 20, b = 20, l = 20), size = 14),
+          axis.text = element_text(size = 11)) +
+    coord_flip() +
+    ylab("Relative abundance")
+p_comp
+
+# some other plotting options
+ggplot(all_RAs, aes(timepoint, meanRA)) + 
+  geom_col(aes(fill = Phylum)) +
+  ylab("Relative abundance") +
+  xlab("Timepoint") +
+  scale_fill_manual(values = colpal, name = "Phylum") +
+  coord_flip() 
+
+# 
+nes_phylum <- ps3 %>% 
+  tax_glom(taxrank = "Phylum") %>% 
+  transform_sample_counts(function(x) {x/sum(x)}) %>% 
+  psmelt() %>% 
+  filter(Abundance > 0.01) %>% 
+  arrange(desc(Abundance))
+
+p_bar <- ggplot(nes_phylum, aes(individual, Abundance, fill = Phylum)) +
+  facet_grid(timepoint~.)+
+  geom_bar(stat = "identity") +
+  theme_martin() +
+  #scale_fill_manual(values = phylum_colors) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_text(size=14), 
+        axis.title.y = element_text(size=14), 
+        axis.text.y = element_text(size=8))+
+  scale_fill_manual(values = c(wes_palette("Chevalier1")[1],wes_palette("FantasticFox1")[3:1],  
+                               wes_palette("IsleofDogs1")[c(2,1,3)] ), name = "Phylum") +
+  #scale_fill_brewer(type = "qual", palette = "Set3") +
+  guides(fill = guide_legend(keywidth = 1, keyheight = 1)) +
+  theme(legend.text = element_text(size = 11),legend.title = element_text(face="bold")) +
+  ylab("Relative abundance \n") +
+  xlab("Individuals") +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()) +
+        #axis.line = element_line(size = 0.5, colour = "black")) +
+  theme(panel.spacing.x = unit(10, "lines"))+
+  theme(strip.text.y = element_text(size=12)) 
+p_bar
+ggsave(filename = "../figures/composition_phylum_bar.jpg", p_bar, width = 8, height = 4.5)
+
+#plot_bar(ps3, "Phylum", facet_grid=~timepoint)
+
+#ggsave(filename = "../figures/composition_phylum.jpg", p_comp, width = 5.8, height = 4)
+
+# number of ASVs per sample ----------------------------------------------------
+ps_otu <- as.data.frame(otu_table(ps3))
+asv_per_sample <- rowSums(ps_otu > 0)
+mean(asv_per_sample) # 286
+sd(asv_per_sample) # 67
 # plot broad Abundances --------------------------------------------------------
 # Taxonomic agglomeration
 # How many genera are present after filtering? 135
@@ -295,7 +385,6 @@ sapply(all_timepoints, function(x) write_excel_csv(core_across_time[[x]],
 
 
 
-
 # Core microbiome tables ---------------------------------------------------------------------------
 linesep <- c("") 
 
@@ -310,9 +399,62 @@ for (i in all_timepoints) {
     
 }
 
+library(forcats)
+source("martin.R")
+# core microbiome plots
+# T1
+core_T1 <- core_across_time[[1]] %>% 
+    dplyr::rename(Abundance = `Mean rel. abundance %`) %>% 
+    dplyr::mutate(ASV_id = 1:nrow(.)) %>% 
+    mutate(Genus = fct_inorder(Genus))
+
+p1 <- ggplot(core_T1, aes(ASV_id, Abundance)) +
+        geom_col(fill = "ghostwhite", col = "#333333") +
+        theme_martin() +
+        scale_x_reverse(breaks = 1:nrow(core_T1),
+                            labels = as.character(core_T1$Genus)) +
+        ylab("Mean relative abundance %") +
+        xlab("ASV (Genus)") +
+        theme(panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank()) +
+        coord_flip() 
+ggsave(filename = "../figures/core_t1.jpg", width = 4, height = 4)
 
 
+core_T2 <- core_across_time[[2]] %>% 
+    dplyr::rename(Abundance = `Mean rel. abundance %`) %>% 
+    dplyr::mutate(ASV_id = 1:nrow(.)) %>% 
+    mutate(Genus = fct_inorder(Genus))
 
+p2 <- ggplot(core_T2, aes(ASV_id, Abundance)) +
+    geom_col(fill = "ghostwhite", col = "#333333") +
+    theme_martin() +
+    scale_x_reverse(breaks = 1:nrow(core_T2),
+        labels = as.character(core_T2$Genus)) +
+    ylab("Mean relative abundance %") +
+    xlab("ASV (Genus)") +
+    theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+    coord_flip() 
+ggsave(filename = "../figures/core_t2.jpg", width = 4, height = 4)
+
+
+core_T3 <- core_across_time[[3]] %>% 
+    dplyr::rename(Abundance = `Mean rel. abundance %`) %>% 
+    dplyr::mutate(ASV_id = 1:nrow(.)) %>% 
+    mutate(Genus = fct_inorder(Genus))
+
+p3 <- ggplot(core_T3, aes(ASV_id, Abundance)) +
+    geom_col(fill = "ghostwhite", col = "#333333") +
+    theme_martin() +
+    scale_x_reverse(breaks = 1:nrow(core_T3),
+        labels = as.character(core_T3$Genus)) +
+    ylab("Mean relative abundance %") +
+    xlab("ASV (Genus)") +
+    theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+    coord_flip() 
+ggsave(filename = "../figures/core_t3.png", width = 5, height = 5)
 
 # transformation and ordination --------------------------------------------------------------------
 
@@ -352,21 +494,24 @@ p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", 
 #which((p_ord_df$Axis.1 > 0) & (p_ord_df$Axis.2 < 0) & (p_ord_df$sex == "F"))
 #p_ord_df[32, ]
 p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
-    geom_point(size = 3, alpha = 0.8, aes(shape = sex, fill = timepoint)) +
+    geom_point(size = 3.5, alpha = 0.9, aes(shape = sex, fill = timepoint)) +
     #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
-    theme_martin() +
-    theme(panel.grid = element_blank()) +
-    scale_shape_manual(values = c(21,24), name = "Sex")+
+    #theme_martin() +
+    scale_shape_manual(values = c(21,24), name = "Sex") +
     scale_fill_manual(values = colpal, name = "Timepoint") +
     coord_fixed(sqrt(evals[2] / evals[1])) +
     theme(legend.position = "bottom",
           legend.direction = "horizontal") +
-    xlab("Axis 1 [28,5%]") +
-    ylab("Axis 2 [13,4%]") +
+    xlab("\n Axis 1 [28,5%]") +
+    ylab("Axis 2 [13,4%] \n ") +
+    theme(panel.grid = element_blank(),
+        axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.ticks = element_line(colour = "black", size = 0.3)) +
     guides(fill=guide_legend(override.aes=list(shape=21)))
     
 p_ord_plot
-# ggsave("../figures/Fig1_sex_time_MDS.jpg", p_ord_plot, width = 6, height = 4)
+ggsave("../figures/Fig1_sex_time_MDS_new.jpg", p_ord_plot, width = 6, height = 4)
 
 # Ordination outlier plot ----------------------------------
 p_ord_plot_outlier <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
@@ -393,24 +538,37 @@ make_subset_plots <- function(iter, p_ord_df, plotcols) {
     p_ord_df_sub <- filter(p_ord_df, individual %in% to_sample)
     
     p_ord_plot_ind <- ggplot(p_ord_df_sub, aes(Axis.1, Axis.2, color = individual)) +
-        geom_point(size = 1, alpha = 0.8) +
+        geom_point(size = 1, alpha = 1) +
         #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
-        theme_martin() +
-        geom_polygon(aes(fill=individual), alpha = 0.05) +
+        # theme_martin() +
+        geom_polygon(aes(fill=individual), alpha = 0.4, size = 0.1) +
         theme(panel.grid = element_blank(),
+            axis.line = element_line(colour = "black", size = 0.5),
             legend.text=element_text(size=7),
             legend.key.size = unit(0.6,"line"),
             legend.title = element_blank(),
-            plot.margin = unit(c(-1.1,0.3,-1.1,1), "cm")) +
-        scale_x_continuous(breaks = seq(from = -0.45, to = 0.45, by = 0.2), limits = c(-0.45, 0.45)) +
-        scale_y_continuous(breaks = seq(from = -0.4, to = 0.4, by = 0.2), limits = c(-0.4, 0.4)) +
+            plot.margin = unit(c(-3,0,0,0), "cm"),
+            legend.position = "none",
+            axis.title = element_blank()) + #unit(c(-1.1,0.3,-1.1,1), "cm")
+        scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
+        scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + #, limits = c(-0.4, 0.4)
         #scale_shape_manual(values = c(21,2))+
         scale_color_manual(values = plotcols) +
+        scale_fill_manual(values = plotcols) +
         coord_fixed(sqrt(evals[2] / evals[1])) +
+      theme(legend.position = "bottom",
+            legend.direction = "horizontal") +
+      xlab("\n Axis 1 [28,5%]") +
+      ylab("Axis 2 [13,4%] \n ") +
+      theme(panel.grid = element_blank(),
+            axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
+            axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
+            axis.ticks = element_line(colour = "black", size = 0.3)) +
+      guides(fill=guide_legend(override.aes=list(shape=21)))
        # theme(legend.position = "bottom",
         #    legend.direction = "horizontal") +
-        xlab("Axis 1 [28,4%]") +
-        ylab("Axis 2 [13,3%]") 
+        xlab("Axis 1 [28,5%]") +
+        ylab("Axis 2 [13,4%]") 
     p_ord_plot_ind
 }
 all_samples <- unique(p_ord_df$individual)
@@ -419,9 +577,56 @@ plotcols <- sample(c(get_colors("Paired")))
 
 all_plots <- map(1:4, make_subset_plots, p_ord_df, plotcols)
 
-p_all <- all_plots[[1]] + all_plots[[2]] + all_plots[[3]]  + all_plots[[4]]
+p_all <- all_plots[[1]] + all_plots[[2]] + all_plots[[3]] + all_plots[[4]]
 p_all
-#ggsave("../figures/Sup2_mds_by_int.jpg", p_all, width = 9, height = 7)
+ggsave("../figures/Sup2_mds_by_int_2.jpg", p_all, width = 7, height = 5.5)
+
+# Within individual similarity2 --------------------------------------------------------------------
+
+
+# p_ord_df %>% 
+#   filter(individual %in% sample(unique(p_ord_df$individual), 13)) %>% 
+# ggplot(aes(Axis.1, Axis.2, shape = sex, color = individual)) +
+#   geom_point() +
+#   geom_polygon(alpha = 0.02)
+set.seed(25)
+plotcols <- sample(c(wes_palette("FantasticFox1")[-4], wes_palette("GrandBudapest2")[-1], wes_palette("Moonrise2")), 6)
+# good inds to show
+# 17BEMa32, 17BEMa27 or 24, 17BEMa38, 17BEMa3
+set.seed(113)
+data_sub <- filter(p_ord_df, individual %in% sample(unique(p_ord_df$individual), 8)) %>% 
+              filter(!(individual %in% c("17BEMa4", "17BEMa13")))
+
+p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
+  geom_point(size = 3.5, alpha = 0.5, fill = "grey90", stroke = 0.2) +
+  geom_point(data = data_sub, 
+             aes(col=individual, fill=individual),
+             size = 3.5, alpha = 0.8, stroke = 0.5) +
+  geom_polygon(data = data_sub, 
+               aes(col=individual, fill=individual), alpha = 0.5, size = 0.5) + # , fill=NA
+  scale_shape_manual(values = c(21,24), name = "Sex") +
+ scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
+  scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + #, limits = c(-0.4, 0.4)
+  #scale_shape_manual(values = c(21,2))+
+  #scale_shape_manual(values = c(21,24), name = "Sex") +
+  scale_color_manual(values = c(plotcols), labels = rep("", 6)) +
+  scale_fill_manual(values = c(plotcols), labels = rep("", 6)) +
+  coord_fixed(sqrt(evals[2] / evals[1])) +
+  theme(legend.position = "bottom",
+        legend.direction = "horizontal") +
+  xlab("\n Axis 1 [28,5%]") +
+  ylab("Axis 2 [13,4%] \n ") +
+  theme(panel.grid = element_blank(),
+        axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.ticks = element_line(colour = "black", size = 0.3),
+        legend.position = "bottom",
+        legend.direction = "horizontal") +
+  #guides(fill=guide_legend(override.aes=list(shape=21))) +
+  guides(color= FALSE, shape = FALSE, fill = guide_legend("Individuals"))
+
+
+p_ord_plot + p_host
 
 
 # plotting time trends -----------------------------------------------------------------------------
@@ -533,6 +738,40 @@ p_order
 ggsave("../figures/Sup5_order_time_trends.jpg",p_order, width = 8.5, height = 7.5)
 
 
+# time trends across Genera ------------------------------
+# get top 10 core microbiota across all three timepoints
+top10 <- as.character(unlist(map(core_across_time, function(x) x$Genus[1:10])))
+top10 <- unique(top10)
+
+plot_df <- ps_df %>% 
+    group_by(Sample, Genus) %>% 
+    dplyr::summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else dplyr::first(.))) %>% 
+    dplyr::filter(!is.na(timepoint)) %>% 
+    dplyr::filter(Abundance > 0.0001) %>% 
+    dplyr::filter(Genus %in% top10) %>%
+    mutate(Abundance = log(Abundance + 0.00001)) %>% 
+    dplyr::filter(!is.na(Genus))
+    #mutate(Abundance = sqrt(Abundance)) 
+
+p_genus <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
+    geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+    #geom_jitter(size = 2.7, alpha = 0.6,  col = "black", aes(shape = sex, fill = "grey"), width = 0.3, stroke =0.7)
+    geom_point(position=position_jitterdodge(jitter.width = 0.1), size=1, alpha=0.6, color = "black") +
+    # geom_jitter(alpha=0.3, width = 0.1, aes(by = sex)) +
+    facet_wrap(~Genus) +
+    scale_y_continuous(breaks = log(c(0.001, 0.010, 0.100, 1.000)), labels = c(c("0.001", "0.010", "0.100", "1.000"))) +
+    theme_martin() +
+    ylab("Relative abundance") +
+    xlab("Timepoint") +
+    scale_shape_manual(values = c(21,24), name = "Sex") +
+    scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
+    guides(fill = guide_legend(),
+        shape = guide_legend())
+
+p_genus
+
+ggsave("../figures/Fig2_core_microbiota_genus_time_trends.jpg", p_genus, width = 7.5, height = 5.5)
+
 
 # alpha diversity ----------------------------------------------------------------------------------
 diversity_df <- estimate_richness(ps, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
@@ -572,15 +811,15 @@ p_div
 # modeling 
 library(lme4)
 library(partR2)
-div_mod <- lmer(Shannon ~ sex + timepoint   + (1|individual), data = diversity_df)
+div_mod <- lmer(Shannon ~ sex + timepoint + (1|individual), data = diversity_df)
 summary(div_mod)
 tidy(div_mod)
 VarCorr(div_mod)
 set.seed(17) 
 boot_div_mod <- confint(div_mod, method = c("boot"), nsim = 1000)
 boot_div_mod
-R2_div <- partGaussian(div_mod, partvars = c("sex", "timepoint"), nboot = 1000)
-rpt_div <- rptGaussian(Shannon ~ sex + timepoint + (1|individual),grname = "individual", data = diversity_df)
+R2_div <- partGaussian(div_mod, partvars = c("sex", "timepoint"), nboot = 1000) #
+rpt_div <- rptGaussian(Shannon ~ (1|individual),grname = "individual", data = diversity_df)#"timepoint"
 
 
 # permanova analysis (check pseudoreplication problem) --------------------------------------------
@@ -627,7 +866,7 @@ p_ord_rpt  + geom_polygon(aes(fill=individual), alpha = 0.05) + geom_point(size=
 library(reshape2)
 library(vegan)
 metadata <- as(sample_data(ps_vst), "data.frame")
-mod_ind <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint +  sex + individual,
+mod_ind <- adonis(phyloseq::distance(ps_vst, method="bray") ~    individual, #timepoint + sex +
     data = metadata) # ,  strata = metadata$sex
 mod_df <- as_tibble(mod_ind$aov.tab, rownames="varcomp")
 
