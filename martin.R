@@ -1,18 +1,18 @@
-theme_martin <- function(grid=TRUE, legend.position=NA, base_family='Lato Light', highlight_family='Lato') {
+theme_martin <- function(grid=TRUE, legend.position=NA, base_family='Helvetica', highlight_family='Helvetica') {
   
   # credit to Henrik Lindberg https://github.com/halhen
   th <- ggplot2::theme_minimal(base_family = base_family, base_size = 12)
   
-  th <- th + theme(text = element_text(color='#333333'))
+  th <- th + theme(text = element_text(color='black'))
   
   th <- th + theme(legend.background = element_blank())
   th <- th + theme(legend.key = element_blank())
   
   # Straight out of hrbrthemes
   if (inherits(grid, "character") | grid == TRUE) {
-    th <- th + theme(panel.grid=element_line(color="#cccccc", size=0.3))
-    th <- th + theme(panel.grid.major=element_line(color="#eaeaea", size=0.3))
-    th <- th + theme(panel.grid.minor=element_line(color="#eaeaea", size=0.15))
+    th <- th + theme(panel.grid=element_line(color="black", size=0.3))
+    th <- th + theme(panel.grid.major=element_line(color="black", size=0.3))
+    th <- th + theme(panel.grid.minor=element_line(color="black", size=0.15))
     
     if (inherits(grid, "character")) {
       if (regexpr("X", grid)[1] < 0) th <- th + theme(panel.grid.major.x=element_blank())

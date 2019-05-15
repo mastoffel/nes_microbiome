@@ -256,7 +256,7 @@ nes_phylum <- ps3 %>%
 p_bar <- ggplot(nes_phylum, aes(individual, Abundance, fill = Phylum)) +
   facet_grid(timepoint~.)+
   geom_bar(stat = "identity") +
-  theme_martin() +
+  theme_martin(base_family = "Helvetica") +
   #scale_fill_manual(values = phylum_colors) +
   theme(axis.text.x = element_blank(),
         axis.ticks = element_blank(),
@@ -494,7 +494,7 @@ p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", 
 #which((p_ord_df$Axis.1 > 0) & (p_ord_df$Axis.2 < 0) & (p_ord_df$sex == "F"))
 #p_ord_df[32, ]
 p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
-    geom_point(size = 3.5, alpha = 0.9, aes(shape = sex, fill = timepoint)) +
+    geom_point(size = 3.5, alpha = 0.8, aes(shape = sex, fill = timepoint)) +
     #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
     #theme_martin() +
     scale_shape_manual(values = c(21,24), name = "Sex") +
@@ -502,8 +502,8 @@ p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
     coord_fixed(sqrt(evals[2] / evals[1])) +
     theme(legend.position = "bottom",
           legend.direction = "horizontal") +
-    xlab("\n Axis 1 [28,5%]") +
-    ylab("Axis 2 [13,4%] \n ") +
+    xlab("Axis 1 [28,5%]") +
+    ylab("Axis 2 [13,4%]") +
     theme(panel.grid = element_blank(),
         axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
@@ -583,7 +583,6 @@ ggsave("../figures/Sup2_mds_by_int_2.jpg", p_all, width = 7, height = 5.5)
 
 # Within individual similarity2 --------------------------------------------------------------------
 
-
 # p_ord_df %>% 
 #   filter(individual %in% sample(unique(p_ord_df$individual), 13)) %>% 
 # ggplot(aes(Axis.1, Axis.2, shape = sex, color = individual)) +
@@ -598,10 +597,10 @@ data_sub <- filter(p_ord_df, individual %in% sample(unique(p_ord_df$individual),
               filter(!(individual %in% c("17BEMa4", "17BEMa13")))
 
 p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
-  geom_point(size = 3.5, alpha = 0.5, fill = "grey90", stroke = 0.2) +
+  geom_point(size = 3.5, alpha = 0.6, fill = "grey90", stroke = 0.2) +
   geom_point(data = data_sub, 
              aes(col=individual, fill=individual),
-             size = 3.5, alpha = 0.8, stroke = 0.5) +
+             size = 3.5, alpha = 0.9, stroke = 0.5) +
   geom_polygon(data = data_sub, 
                aes(col=individual, fill=individual), alpha = 0.5, size = 0.5) + # , fill=NA
   scale_shape_manual(values = c(21,24), name = "Sex") +
@@ -612,21 +611,25 @@ p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
   scale_color_manual(values = c(plotcols), labels = rep("", 6)) +
   scale_fill_manual(values = c(plotcols), labels = rep("", 6)) +
   coord_fixed(sqrt(evals[2] / evals[1])) +
-  theme(legend.position = "bottom",
-        legend.direction = "horizontal") +
-  xlab("\n Axis 1 [28,5%]") +
-  ylab("Axis 2 [13,4%] \n ") +
+  xlab("Axis 1 [28,5%]") +
+  ylab("Axis 2 [13,4%]") +
+  guides(color= FALSE, shape = FALSE,
+         fill = guide_legend("Host", nrow = 1,
+                             override.aes=list(fill=plotcols, col = plotcols, shape=c(17,16,16,17,17,16))),
+         keywidth = 1) +
   theme(panel.grid = element_blank(),
         axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.ticks = element_line(colour = "black", size = 0.3),
-        legend.position = "bottom",
-        legend.direction = "horizontal") +
-  #guides(fill=guide_legend(override.aes=list(shape=21))) +
-  guides(color= FALSE, shape = FALSE, fill = guide_legend("Individuals"))
+        legend.position = "bottom") 
+ 
+library(cowplot)
+p_full <- plot_grid(p_ord_plot, p_host, labels = c("A", "B"))
+p_full 
+p_full_vert <-  p_ord_plot / p_host
+ggsave("../figures/beta_div.jpg",plot = p_full, width = 10, height = 3.8)
+ggsave("../figures/beta_div_vert.jpg",plot = p_full_vert, width = 6, height = 7)
 
-
-p_ord_plot + p_host
 
 
 # plotting time trends -----------------------------------------------------------------------------
@@ -777,7 +780,7 @@ ggsave("../figures/Fig2_core_microbiota_genus_time_trends.jpg", p_genus, width =
 diversity_df <- estimate_richness(ps, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
                     tibble::rownames_to_column("id") %>% 
                     mutate(id = str_replace(id, "X", "")) %>% 
-                    left_join(sample_data(ps), by = "id")
+                    left_join(as_tibble(sample_data(ps)), by = "id")
 
 colpal_cavalanti <- wes_palette("Cavalcanti1", 2, type = "discrete")
 as.character(wes_palette("Darjeeling2"))
@@ -793,7 +796,7 @@ p_div <- ggplot(diversity_df, aes(timepoint, Shannon, by = sex)) + #colour = sex
    # geom_jitter(size = 2.3, alpha = 0.8,  col = "black", aes(shape = sex, fill = sex), width = 0.3, stroke =0.7) + #shape = 21,
     #scale_shape_manual(values = c(21,24))+
     #facet_wrap(~timepoint) +
-    theme_martin() +
+    theme_martin(base_family = "Helvetica", highlight_family = "Helvetica") +
    # ggtitle("Timepoint") +
     #scale_fill_manual(values =  "grey") +
     scale_shape_manual(values = c(21,24), name = "Sex") +
@@ -801,12 +804,16 @@ p_div <- ggplot(diversity_df, aes(timepoint, Shannon, by = sex)) + #colour = sex
     #scale_x_discrete(labels = c(stri_unescape_unicode("\\u2640"), stri_unescape_unicode("\\u2642"))) +
     #scale_fill_manual(values = colpal_moonrise, name = "Sex") +
     #scale_color_manual(values = colpal_moonrise, name = "Sex") +
-    ylab("Shannon diversity")+
-    xlab("Timepoint")+
-    theme(plot.title = element_text(hjust = 0.5, size = 12))
+    ylab("Shannon diversity\n")+
+    xlab("\nTimepoint")+
+    theme(plot.title = element_text(hjust = 0.5, size = 12),
+          panel.grid = element_blank(),
+          axis.text = element_text(colour = "black"),
+          axis.line = element_line(colour = "black", size = 0.3, linetype = 1),
+          axis.ticks = element_line(colour = "black", size = 0.3, linetype = 1))
     #scale_x_discrete(labels = stri_unescape_unicode("a\\u0105!\\u0032\\n")) 
 p_div
-#ggsave("../figures/Fig5_diversity.jpg", p_div, width = 5, height = 3.2)
+ggsave("../figures/Fig4_diversity.jpg", p_div, width = 4.5, height = 2.9)
 
 # modeling 
 library(lme4)
@@ -1268,7 +1275,7 @@ get_dist_df <- function(sub_sex, ps){
 
 sex_distances <- map_df(c("F", "M"), get_dist_df, ps_merged_vst)
 
-p_rel <- ggplot(sex_distances , aes(rel, value)) +
+p_rel <- ggplot(sex_distances , aes(rel, 1-value)) +
            geom_point(size = 2, alpha = 0.5, aes(shape = sex, fill = sex)) +
            geom_smooth(method = "lm", se = FALSE, aes(color = sex)) +
            facet_wrap(~sex) +
@@ -1276,14 +1283,18 @@ p_rel <- ggplot(sex_distances , aes(rel, value)) +
            scale_shape_manual(values = c(21,24), name = "Sex") +
            scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
            scale_color_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
-           xlab("Genetic relatedness") +
-           ylab("Bray-Curtis dissimilarity") +
+           xlab("\nGenetic relatedness") +
+           ylab("Microbiome similarity\n") +
            theme( strip.background = element_blank(),
+                panel.grid = element_blank(),
                strip.text.x = element_blank(), 
+               axis.text = element_text(color = "black"),
+               axis.line = element_line(colour = "black", size = 0.3),
+               axis.ticks = element_line(colour = "black", size = 0.3),
                panel.spacing = unit(2, "lines")) 
            
 p_rel
-#ggsave("../figures/Fig6_relatedness.jpg", p_rel, width = 7, height = 3)
+ggsave("../figures/Fig5_relatedness.jpg", p_rel, width = 7, height = 3)
 
 # nes_males <- unique(unlist(both_dist_df[c(1,2)]))
 # dist_mat <- matrix(nrow = length(nes_males), ncol = length(nes_males), dimnames = list(nes_males, nes_males))
@@ -1314,7 +1325,25 @@ mantel_test <- ecodist::mantel(formula =  distmat_microbes ~ distmat_msats,
 # F: mantelr = 0.0588, CI -0.0676119  0.2006059 , p two tailed = 0.4209000
 mantel_test 
 
+# check whether slopes are different to avoid some sort of fallacy that Holger mentioned
+# idea: permutation test. Permute pairwise relatedness and recalculate interaction slope
+library(simpleboot)
+mod_rel <- lm(rel ~ value*sex, data = sex_distances)
+boot_rel <- lm.boot(mod_rel, 1000, rows = FALSE)
+perc(boot_rel , p = c(0.025, 0.975)) # interaction slope -0.11 CI: -[0.23, -0.006]
+org_slope <- summary(lm(rel ~ value*sex, data = sex_distances))$coefficients[4, 1]
 
+permed_slope <- function(iter, sex_distances) {
+  data_perm <- sex_distances
+  data_perm[, "rel"] <- sex_distances$rel[sample(1:nrow(sex_distances))]
+  out <- summary(lm(value ~ rel*sex, data = data_perm))$coefficients[4, 1]
+  out
+}
+
+perm_slopes <- sapply(1:1000, permed_slope, sex_distances)
+hist(perm_slopes)
+p_val <- 1 - sum(perm_slopes > org_slope) / length(perm_slopes)
+org_slope
 
 # how many substances explain relatedness ?
 
@@ -1378,7 +1407,7 @@ calc_cor_rel_mic <- function(topx, ps3, sex) {
     distmat_msats <- as.dist(create_distmat(both_dist_df, "ind1", "ind2", "rel"))
     
     mantel_test <- ecodist::mantel(formula =  distmat_microbes ~ distmat_msats, 
-                                   mrank = FALSE, nperm = 10000, nboot = 10000)
+                                   mrank = FALSE, nperm = 1000, nboot = 1000)
     out <- data.frame(t(mantel_test), "topX" = topx)
 }
 
@@ -1393,14 +1422,17 @@ load("output/mantel_subset_test_final.RData")
 p_rel_sub <- ggplot(mantel_subset_df, aes(topX, mantelr, fill = sex, shape = sex, color = sex, by = sex)) +
     geom_pointrange(aes(ymin = llim.2.5., ymax = ulim.97.5.), fatten = 15, size = 0.1, alpha = 0.8) +
     theme_martin() +
-    ylab("Mantel r") +
-    xlab("Number of most abundant bacterial taxa") +
+    ylab("Mantel r\n") +
+    xlab("\nNumber of most abundant bacterial taxa") +
     scale_shape_manual(values = c(21,24), name = "Sex") +
     scale_color_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
     scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
-    scale_x_continuous(breaks = c(2, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1064))
+    scale_x_continuous(breaks = c(2, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1064)) +
+    theme(panel.grid = element_blank(),
+          axis.line = element_line(colour = "black", size = 0.3),
+          axis.text = element_text(colour = 'black'))
 p_rel_sub
-#ggsave("../figures/Fig7_relatedness_subset.jpg", p_rel_sub, width = 5.6, height = 4)
+ggsave("../figures/Fig6_relatedness_subset.jpg", p_rel_sub, width = 4.8, height = 3)
 
 
 
