@@ -5,9 +5,7 @@ library(pacman)
 p_load(phyloseq, tidyverse, msa, inbreedR, rptR, lme4, DESeq2, 
        dada2, phangorn, wesanderson, grid, cowplot, readxl, RColorBrewer, 
        blogdown, patchwork, Demerelate, vegan, ecodist, reshape2, microbiome,
-       kableExtra, forcats, broom)
-library(RColorBrewer)
-library(simpleboot)
+       kableExtra, forcats, broom, simpleboot)
 library(partR2)
 source("martin.R")
 source("microbiome_composition_funs.R")
@@ -567,7 +565,6 @@ p_genus
 # ggsave("../figures/Fig2_core_microbiota_genus_time_trends.jpg", p_genus, width = 7.5, height = 5.5)
 
 
-
 # alpha diversity across time and sex  -----------------------------------------
 diversity_df <- estimate_richness(ps, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
                     tibble::rownames_to_column("id") %>% 
@@ -667,7 +664,7 @@ p_ord_rpt  + geom_polygon(aes(fill=individual), alpha = 0.05) + geom_point(size=
     theme_martin()
 
 
-# experimental repeatability for distance matrices -------------------------------------------------
+# experimental repeatability for distance matrices -----------------------------
 library(reshape2)
 library(vegan)
 metadata <- as(sample_data(ps_vst), "data.frame")
@@ -1238,22 +1235,22 @@ p_rel_by_time <- ggplot(sex_distances, aes(rel, 1-value, fill = sex, shape = sex
 
 # mantel tests
 
-all_mantels <- function(timepoint, sex, dist_df, nes_rel_df) {
-    
-    both_dist_df <- dplyr::filter(dist_df, timepoint == timepoint, sex == sex)
-    
-    #both_dist_df <- inner_join(nes_mic_dist_df, nes_rel_df, by = c("ind1" = "ind1", "ind2" = "ind2"))
-    
-    distmat_microbes <- as.dist(1 - create_distmat(both_dist_df, "ind1", "ind2", "value"))
-    distmat_msats <- as.dist(create_distmat(both_dist_df, "ind1", "ind2", "rel"))
-    
-    mantel_test <- ecodist::mantel(formula =  distmat_microbes ~ distmat_msats, 
-        mrank = FALSE, nperm = 10000, nboot = 10000)
-    out <- data.frame(t(mantel_test), "timepoint" = timepoint, "sex" = sex)
-}
-
-
-all_mantels("T1", "M", sex_distances, nes_rel_df)
+# all_mantels <- function(timepoint, sex, dist_df, nes_rel_df) {
+#     
+#     both_dist_df <- dplyr::filter(dist_df, timepoint == timepoint, sex == sex)
+#     
+#     #both_dist_df <- inner_join(nes_mic_dist_df, nes_rel_df, by = c("ind1" = "ind1", "ind2" = "ind2"))
+#     
+#     distmat_microbes <- as.dist(1 - create_distmat(both_dist_df, "ind1", "ind2", "value"))
+#     distmat_msats <- as.dist(create_distmat(both_dist_df, "ind1", "ind2", "rel"))
+#     
+#     mantel_test <- ecodist::mantel(formula =  distmat_microbes ~ distmat_msats, 
+#         mrank = FALSE, nperm = 10000, nboot = 10000)
+#     out <- data.frame(t(mantel_test), "timepoint" = timepoint, "sex" = sex)
+# }
+# 
+# 
+# all_mantels("T1", "M", sex_distances, nes_rel_df)
 
 
 

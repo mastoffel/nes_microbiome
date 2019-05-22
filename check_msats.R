@@ -6,8 +6,7 @@ library(dplyr)
 library(Demerelate)
 
 
-
-# Part 1: Cleaning raw data ------------------------------------------------------------------------
+# Part 1: Cleaning raw data ----------------------------------------------------
 nes <- read_xlsx("../data/raw/elesealgenotypes_12_03.xlsx") 
 
 # delete loci with %
@@ -63,12 +62,7 @@ nes
 
 
 
-
-
-
 # Part 2: HW checking
-
-
 # check HW etc
 library(pacman)
 p_load(Demerelate, dplyr, pegas, ape, seqinr)

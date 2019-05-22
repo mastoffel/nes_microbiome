@@ -4,11 +4,11 @@ library(magrittr)
 help(package ="dada2")
 
 # output folder
-output_folder <- "primer_clipped_reads_11_220230_pool"
+output_folder <- "primer_clipped_reads_22_220230_pool"
 dir.create(paste0(paste0("output/", output_folder)))
 
 # filtering
-ees <- c(1,1)
+ees <- c(2,2)
 # trimming
 totrim <- c(220,230) #220,230
 
