@@ -3,35 +3,28 @@
 # load packages ------------------------------------------------------------------------------------
 library(pacman)
 p_load(phyloseq, tidyverse, msa, inbreedR, rptR, lme4, DESeq2, 
-       dada2, phangorn, wesanderson, grid, cowplot, readxl, RColorBrewer, blogdown)
-library(patchwork)
-library(Demerelate)
-library(vegan)
-library(ecodist)
-library(reshape2)
+       dada2, phangorn, wesanderson, grid, cowplot, readxl, RColorBrewer, 
+       blogdown, patchwork, Demerelate, vegan, ecodist, reshape2, microbiome,
+       kableExtra)
 source("martin.R")
-library(microbiome)
-library(tidyverse)
-library(magrittr)
-library(kableExtra)
 #library(microbiomeSeq)
-
 
 # Prepare and load data ----------------------------------------------------------------------------
 
-# input folder
+# folder with ASV table 
 input_folder <- "primer_clipped_reads_22_220230_pool"
 
-# load taxa and RSV table
+# load ASV table and ...
 load(paste0("output/", input_folder, "/taxa.RData"))
 load(paste0("output/", input_folder, "/seqtab.RData"))
 load(paste0("output/", input_folder, "/fitGTR.RData"))
 
 # sample names
 samples_out <- rownames(seqtab_nochim)
+# make data.frame
 nes_df <- data.frame("id" = samples_out)
 
-# nes data
+# read and process other northern elephant seal data
 nes_sampling <- read_xlsx("../data/processed/sampling_data_processed.xlsx") %>% 
   dplyr::rename(id = ID,
                 date = DATE,

@@ -3,10 +3,10 @@ library(dada2)
 library(magrittr)
 help(package ="dada2")
 
-
 # output folder
 output_folder <- "primer_clipped_reads_11_220230_pool"
 dir.create(paste0(paste0("output/", output_folder)))
+
 # filtering
 ees <- c(1,1)
 # trimming
@@ -50,6 +50,7 @@ plotErrors(errR, nominalQ = TRUE)
 # dereplication
 derepFs <- derepFastq(filtFs, verbose = TRUE)
 derepRs <- derepFastq(filtRs, verbose = TRUE)
+
 # Name the derep-class objects by the sample names
 names(derepFs) <- sample_names
 names(derepRs) <- sample_names
@@ -96,7 +97,6 @@ taxa <- assignTaxonomy(seqtab_nochim, paste0(path, "/silva_nr_v128_train_set.fa.
 
 # add species level assignments where possible
 taxa <- addSpecies(taxa, paste0(path, "/silva_species_assignment_v128.fa.gz"))
-
 
 
 save(seqtab_nochim, file= paste0("output/", output_folder, "/seqtab.RData"))
