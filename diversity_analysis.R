@@ -6,6 +6,8 @@ p_load(phyloseq, tidyverse, msa, inbreedR, rptR, lme4, DESeq2,
        dada2, phangorn, wesanderson, grid, cowplot, readxl, RColorBrewer, 
        blogdown, patchwork, Demerelate, vegan, ecodist, reshape2, microbiome,
        kableExtra, forcats, broom)
+library(RColorBrewer)
+library(simpleboot)
 library(partR2)
 source("martin.R")
 source("microbiome_composition_funs.R")
@@ -691,7 +693,7 @@ rpt_CI <- rpt_res + c(1,-1) * qt((1-CI)/2,k-1)*se
 
 
 
-# deseq2 modeling and plotting (1) ---------------------------------------------
+# differential abundance modeling with deseq2 (1) ----------------------------------
 run_deseq_per_sex <- function(sex){
     # run two models for females and males seperately to account for repeated measures
     ps_m <- prune_samples(sample_data(ps3)$sex %in% sex, ps3)
@@ -727,7 +729,6 @@ run_deseq_per_sex <- function(sex){
 sigtabs_per_sex <- map_df(c("F", "M"), run_deseq_per_sex)
 sigtabs_per_sex$combination <- paste0(sigtabs_per_sex$sex, sigtabs_per_sex$comparison)
 
-
 # releveling and changing NA to Not assigned for plotting
 all_sigtabs_plot <- sigtabs_per_sex %>% 
     mutate(combination = combination %>% as_factor() %>% 
@@ -743,7 +744,6 @@ all_sigtabs_plot <- sigtabs_per_sex %>%
 
 # save Class levels for later plotting
 class_levels <- levels(all_sigtabs_plot$Class)
-library(RColorBrewer)
 get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
 
 set.seed(2049) # 5 / 559 / 1053
@@ -768,13 +768,11 @@ plotcols <- sample(c(get_colors("Paired"), "grey", "black", "white"))
     # "white"
 
 # make a color table
-
 taxa_classes <- as.character(rev(levels(all_sigtabs_plot$Class)))
 taxa_colors <- c("#1F78B4", "#FF7F00", "lightgrey", "#B15928", "#CAB2D6", "#6A3D9A",
                 "black", "#33A02C", "white", "#FB9A99", "#FDBF6F", "#B2DF8A", "#FFFF99", 
                 "#E31A1C", "#A6CEE3")
 names(taxa_colors) <- taxa_classes 
-
 
 dat_text <- data.frame(
     label = c("","\u2640","","\u2642"),
@@ -789,7 +787,7 @@ wrap_labels <- c(FT2vsT1 = "T1 => T2", FT3vsT2 = "T2 => T3", MT2vsT1 = "T1 => T2
 p_diff_time <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) + 
     #geom_point(size = 3) + 
     geom_point(size=3, alpha = 0.7, shape = 21, colour = "black", lwd = 0.1, aes(fill=Class)) + 
-    theme_martin() +
+    theme_minimal() +
     facet_wrap(~combination, labeller = labeller(combination = wrap_labels)) +
     scale_fill_manual(values = taxa_colors) +
     # limits = unique(rev(all_sigtabs$Family))
@@ -817,24 +815,14 @@ p_diff_time <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) +
        # nrow = 5,
         default.unit="inch")) 
 
-    #annotate(geom = "text", x = 15, y = Inf, label = "Some text")
-    # geom_text(
-    #     data    = dat_text,
-    #     mapping = aes(x = x, y = y, label = label),
-    #     size = 20,
-    #     color = "darkgrey"
-    #     #hjust   = -0.1,
-    #     #vjust   = -1
-    # )
-
 p_diff_time_final <- ggdraw(p_diff_time) + 
     draw_label("\u2642",size = 35, colour = "black", x = 0.476, y = 0.3,lineheight = 5) +
     draw_label("\u2640",size = 35, colour = "black", x = 0.476, y = 0.75,lineheight = 5) 
 p_diff_time_final 
-ggsave("../figures/timepoint_diff_abund_family.jpg", p_diff_time_final, width = 11, height = 8)
+# ggsave("../figures/timepoint_diff_abund_family.jpg", p_diff_time_final, width = 11, height = 8)
 
 
-# Summary statistics of differential abundance for paper -------------------------------------------
+# Summary statistics of differential abundance for paper -----------------------
 # Overall number of differentially abundant taxa
 sigtabs_per_sex %>% 
     group_by(sex, combination) %>% 
@@ -858,28 +846,21 @@ sigtabs_per_sex %>%
     arrange(sex, combination, desc(n)) %>% 
     mutate(n_prop = n / sum(n)) %>% 
     print(n = Inf)
-#
 
-
-    #summarise(sum_fold_change = sum(log2FoldChange))
-
-# deseq2 modeling and plotting (2) -------------------------------------------------------------------------------
+# differential abundance modeling with deseq2 (2) ------------------------------
 
 # create factor representing the combination of time and sex
 sample_data(ps3)$group <- factor(paste0(sample_data(ps3)$timepoint, sample_data(ps3)$sex))
 
 nes_mod_dds_sex <- phyloseq_to_deseq2(ps3, ~ group)
+
 # estimate size factos
 vst_dds_sex <- estimateSizeFactors(nes_mod_dds_sex, type = "poscounts")
 colData(nes_mod_dds_sex)
 
-# see again if groups differ 
-#vst_dds_temp <- varianceStabilizingTransformation(vst_dds_sex , fitType = "local")
-#plotPCA(vst_dds_temp, intgroup="group")
-
 # deseq analysis  
 vst_dds_sex_mod <- DESeq(vst_dds_sex, test="Wald", fitType="local")
-colData(vst_dds_sex_mod)
+#colData(vst_dds_sex_mod)
 resultsNames(vst_dds_sex_mod)
 # Investigate results table
 get_dds_results_tables <- function(contrast, deseq_analysis_object, alpha) {
@@ -909,25 +890,15 @@ all_sigtabs_plot <- all_sigtabs %>%
     })
 get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
 
-#set.seed(2049) # 5 / 559 / 1053
-#plotcols <- sample(c(get_colors("Paired"), "grey", "black", "white"))
-#plotcols <- c(sample(c(get_colors("Paired"), "grey", "black")),  "white")
-
-# dat_text <- data.frame(
-#     label = c("","\u2640","","\u2642"),
-#     comparison  = factor(c("FT2vsT1", "FT3vsT2", "MT2vsT1", "MT3vsT2")),
-#     y = c(Inf, Inf, Inf, Inf),
-#     x = c(15,15,15,15)
-# )
-
 # create labeller function
 wrap_labels <- c(T1FvsT1M = "T1: F vs. M", T2FvsT2M = "T2: F vs. M", T3FvsT3M = "T3: F vs. M")
 #levels(all_sigtabs_plot$Class)
 
+# plot
 p_diff_sex <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) + 
     #geom_point(size = 3) + 
     geom_point(size=3, alpha = 0.7, shape = 21, colour = "black", lwd = 0.1, aes(fill=Class)) + 
-    theme_martin() +
+    theme_minimal() +
     facet_wrap(~combination, labeller = labeller(combination = wrap_labels)) + #, 
     scale_fill_manual(values = taxa_colors) +
     # limits = unique(rev(all_sigtabs$Family))
@@ -955,20 +926,11 @@ p_diff_sex <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) +
         # nrow = 5,
         default.unit="inch")) 
 p_diff_sex
-#annotate(geom = "text", x = 15, y = Inf, label = "Some text")
-# geom_text(
-#     data    = dat_text,
-#     mapping = aes(x = x, y = y, label = label),
-#     size = 20,
-#     color = "darkgrey"
-#     #hjust   = -0.1,
-#     #vjust   = -1
-# )
-ggsave("../figures/timepoint_diff_abund_sex.jpg", p_diff_sex, width = 11, height = 5)
+
+# ggsave("../figures/timepoint_diff_abund_sex.jpg", p_diff_sex, width = 11, height = 5)
 
 
-
-# Summary statistics of differential abundance for paper -------------------------------------------
+# Summary statistics of differential abundance for paper -----------------------
 # Overall number of differentially abundant taxa
 all_sigtabs %>% 
     group_by(comparison) %>% 
@@ -987,12 +949,7 @@ all_sigtabs %>%
     print(n = Inf)
 
 
-
-
-
-
-
-# gut microbiota and relatedness -------------------------------------------------------------------
+# gut microbiome and relatedness -----------------------------------------------
 
 # microsatellites preparation
 nes_msats <- readxl::read_xls("../data/raw/nes_msats_cleaned.xls") %>% 
@@ -1001,7 +958,7 @@ names(nes_msats)[1:2] <- c("Sample-ID", "Population")
 nes_msats <- data.frame(nes_msats)
 str(nes_msats)
 
-# test whether number of loci is enough -----------------------------------
+# test whether number of microsat loci is enough -------------------------------
 rel_test <- Loci.test(nes_msats, bt=1000, object=TRUE, value= "loiselle", file.output=TRUE)
 rel_means <- unlist(lapply(rel_test, mean))
 yplus <- rel_means + unlist(lapply(rel_test, sd))
@@ -1017,8 +974,9 @@ p_rel_test <- ggplot(rel_test_df, aes(loci, rel_mean)) +
 p_rel_test
 #ggsave("../figures/Sup6_rel_test.jpg",p_rel_test, width = 5, height = 3.5)
 
-# (1) relatedness estimation ----------------------------------------------
-nes_rel <- Demerelate(as.data.frame(nes_msats), value= "loiselle", file.output=FALSE,  #loiselle
+# (1) relatedness estimation ---------------------------------------------------
+nes_rel <- Demerelate(as.data.frame(nes_msats), value= "loiselle", 
+                      file.output=FALSE,  #loiselle
                       object = TRUE, pairs = 100)
 
 hist(unlist(nes_rel$Empirical_Relatedness))
@@ -1040,15 +998,17 @@ nes_rel_df <- data.frame("ind1" = nes_rel_pair_names[[1]], "ind2" = nes_rel_pair
 #ps_merged <- subset_samples(ps3, sex == "M")
 ps_merged <- merge_samples(ps3, "individual", fun = mean)
 
-# ps_merged <- subset_taxa(ps_merged, Order %in% c("Bacteroidales", "Clostridiales"))
 # convert to deseq
 ps_merged_dds <- phyloseq_to_deseq2(ps_merged, ~ 1) # here ps_merged
+
 # estimate size factors with not including 0 in geometric mean calc
 ps_merged_dds <- estimateSizeFactors(ps_merged_dds, type = "poscounts") %>% 
     estimateDispersions(fitType = "local")
+
 # create new phyloseq object with variance stabilised ASV table
 ps_merged_vst <- ps3
-otu_table(ps_merged_vst) <- otu_table(getVarianceStabilizedData(ps_merged_dds), taxa_are_rows = TRUE)
+otu_table(ps_merged_vst) <- otu_table(getVarianceStabilizedData(ps_merged_dds), 
+                                      taxa_are_rows = TRUE)
 
 # create dataframe for each sex and combine for plotting
 get_dist_df <- function(sub_sex, ps){
@@ -1089,7 +1049,7 @@ p_rel <- ggplot(sex_distances , aes(rel, 1-value)) +
                panel.spacing = unit(2, "lines")) 
            
 p_rel
-ggsave("../figures/Fig5_relatedness.jpg", p_rel, width = 7, height = 3)
+# ggsave("../figures/Fig5_relatedness.jpg", p_rel, width = 7, height = 3)
 
 # nes_males <- unique(unlist(both_dist_df[c(1,2)]))
 # dist_mat <- matrix(nrow = length(nes_males), ncol = length(nes_males), dimnames = list(nes_males, nes_males))
@@ -1107,7 +1067,7 @@ create_distmat <- function(dist_df, sample_var1, sample_var2, value_var) {
     t(dist_mat)
 }
 
-# calculate mantel test seperately for the two sexes
+# calculate mantel test seperately for the two sexes ---------------------------
 both_dist_df <- filter(sex_distances, sex == "M")
 
 distmat_microbes <- as.dist(1 - create_distmat(both_dist_df, "ind1", "ind2", "value"))
@@ -1120,9 +1080,9 @@ mantel_test <- ecodist::mantel(formula =  distmat_microbes ~ distmat_msats,
 # F: mantelr = 0.0588, CI -0.0676119  0.2006059 , p two tailed = 0.4209000
 mantel_test 
 
-# check whether slopes are different to avoid some sort of fallacy that Holger mentioned
+# check whether slopes are different 
 # idea: permutation test. Permute pairwise relatedness and recalculate interaction slope
-library(simpleboot)
+
 mod_rel <- lm(rel ~ value*sex, data = sex_distances)
 boot_rel <- lm.boot(mod_rel, 1000, rows = FALSE)
 perc(boot_rel , p = c(0.025, 0.975)) # interaction slope -0.11 CI: -[0.23, -0.006]
@@ -1140,7 +1100,7 @@ hist(perm_slopes)
 p_val <- 1 - sum(perm_slopes > org_slope) / length(perm_slopes)
 org_slope
 
-# how many substances explain relatedness ?
+# how many ASVs explain relatedness ? ------------------------------------------
 
 # for later use also
 create_distmat <- function(dist_df, sample_var1, sample_var2, value_var) {
@@ -1216,7 +1176,7 @@ load("output/mantel_subset_test_final.RData")
 #save(mantel_subset_df, file = "output/mantel_subset_test_final.RData")
 p_rel_sub <- ggplot(mantel_subset_df, aes(topX, mantelr, fill = sex, shape = sex, color = sex, by = sex)) +
     geom_pointrange(aes(ymin = llim.2.5., ymax = ulim.97.5.), fatten = 15, size = 0.1, alpha = 0.8) +
-    theme_martin() +
+    theme_minimal() +
     ylab("Mantel r\n") +
     xlab("\nNumber of most abundant bacterial taxa") +
     scale_shape_manual(values = c(21,24), name = "Sex") +
@@ -1227,11 +1187,11 @@ p_rel_sub <- ggplot(mantel_subset_df, aes(topX, mantelr, fill = sex, shape = sex
           axis.line = element_line(colour = "black", size = 0.3),
           axis.text = element_text(colour = 'black'))
 p_rel_sub
-ggsave("../figures/Fig6_relatedness_subset.jpg", p_rel_sub, width = 4.8, height = 3)
+# ggsave("../figures/Fig6_relatedness_subset.jpg", p_rel_sub, width = 4.8, height = 3)
 
 
 
-# create dataframe for each timepoint per sex and combine for plotting
+# create dataframe for each timepoint per sex and combine for plotting ---------
 
 get_dist_df2 <- function(sub_timepoint, sub_sex, ps){
     # subset Males
@@ -1257,8 +1217,8 @@ sex_distances <- map_df(c("F", "M"), function(sex) {
     map_df(c("T1", "T2", "T3"), get_dist_df2, sex, ps_vst)
     })
                    
-
-p_rel_by_time <- ggplot(sex_distances, aes(rel, value, fill = sex, shape = sex)) +
+source("martin2.R")
+p_rel_by_time <- ggplot(sex_distances, aes(rel, 1-value, fill = sex, shape = sex)) +
     geom_point(size = 1.7, alpha = 0.3) +
     geom_smooth(se = FALSE, method = "lm", aes(color = sex)) +
     facet_grid(sex ~ timepoint) +
@@ -1267,13 +1227,13 @@ p_rel_by_time <- ggplot(sex_distances, aes(rel, value, fill = sex, shape = sex))
     scale_color_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
     scale_x_continuous(breaks = c(-0.2, 0, 0.2)) +
     xlab("Genetic relatedness") +
-    ylab("Bray-Curtis dissimilarity") +
-    theme_martin() +
+    ylab("Bray-Curtis similarity") +
+    theme_martin2() +
     theme( strip.background = element_blank(),
         strip.text.y = element_blank(), 
         panel.spacing = unit(1, "lines")) 
 
-#ggsave("../figures/Sup7_relatedness_by_time.jpg", p_rel_by_time , width = 6.2, height = 4)
+# ggsave("../figures/Sup7_relatedness_by_time.jpg", p_rel_by_time , width = 6.2, height = 4)
 
 
 # mantel tests
@@ -1298,32 +1258,9 @@ all_mantels("T1", "M", sex_distances, nes_rel_df)
 
 
 
-# inbreedR analyses
-# calc het and g2
-nes_geno <- convert_raw(nes_msats[3:ncol(nes_msats)])
-g2_microsats(nes_geno, nboot = 1000, nperm = 1000)
-# het df
-nes_het <- data.frame(id = nes_msats$id, het = sMLH(nes_geno)) %>% 
-  arrange(by = het)
-
-# combine data
-nes_full <- nes_divs %>% 
-  mutate(id = str_replace(id, "17BEMa", "E")) %>% 
-  right_join(nes_het)
-
-ggplot(nes_full, aes(het, divs, col = sex)) + geom_point() + 
-  facet_wrap(~timepoint) +
-  geom_smooth(method = lm, se =FALSE)
 
 
 
 
 
 
-
-
-
-
-
-
-≈
