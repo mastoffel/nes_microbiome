@@ -1,3 +1,6 @@
+# DADA2 pipeline to go from paired-end fastq files to an amplicon sequence variant (ASV) table
+# Follows the online tutorial https://benjjneb.github.io/dada2/tutorial.html
+
 library(dplyr)
 library(dada2)
 library(magrittr)
@@ -9,6 +12,7 @@ dir.create(paste0(paste0("output/", output_folder)))
 
 # filtering
 ees <- c(2,2)
+
 # trimming
 totrim <- c(220,230) #220,230
 
@@ -81,6 +85,7 @@ seqtab2 <- seqtab[,nchar(colnames(seqtab)) %in% seq(380,450)]
 # remove chimeras
 seqtab_nochim <- removeBimeraDenovo(seqtab2, method="consensus", multithread=TRUE, verbose=TRUE)
 dim(seqtab_nochim)
+
 # how much of the total reads remain?
 sum(seqtab_nochim)/sum(seqtab)
 
@@ -98,7 +103,7 @@ taxa <- assignTaxonomy(seqtab_nochim, paste0(path, "/silva_nr_v128_train_set.fa.
 # add species level assignments where possible
 taxa <- addSpecies(taxa, paste0(path, "/silva_species_assignment_v128.fa.gz"))
 
-
+# save ASV table
 save(seqtab_nochim, file= paste0("output/", output_folder, "/seqtab.RData"))
 save(taxa, file=paste0("output/", output_folder, "/taxa.RData"))
 

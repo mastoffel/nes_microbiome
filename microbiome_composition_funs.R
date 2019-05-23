@@ -1,4 +1,4 @@
-# functions to assess microbiome composition
+# helper functions for microbiome analysis
 
 library("phyloseq")
 library("data.table")

@@ -1,10 +1,9 @@
-# check msat genotypes
+# check microsat genotypes
 library(inbreedR)
 library(readxl)
 library(stringr)
 library(dplyr)
 library(Demerelate)
-
 
 # Part 1: Cleaning raw data ----------------------------------------------------
 nes <- read_xlsx("../data/raw/elesealgenotypes_12_03.xlsx") 

@@ -1,0 +1,47 @@
+---
+title: "Northern elephant seal gut microbiome analysis"
+output:
+ html_document:
+        toc: true
+        toc_float: true
+        code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document provides the R code to reproduce the figures and analyses in our
+paper "Early sexual dimorphism, development and genetic basis of the gut microbiome
+in northern elephant seals". If you have any questions, please contact me at
+martin.adam.stoffel[at]gmail.com.
+
+We collected rectal samples from 40 northern elephant seal pups across their
+7-week long post-weaning period. From each individual, we collected 3 swabs at
+28, 43 and 58 days of age, resulting in a total of 112 microbiome samples (some 
+individuals died or were lost at some point). 
+
+To quantify the microbial communities, we sequenced the V3-V4 region of the
+16S rRNA gene, using paired-end reads on an Illumina MiSeq. The paired-end
+reads were merged into amplicon sequence variants (ASVs) with DADA2. ASVs are
+exact sequence variants and can thus be compared across multiple studies.
+
+
+```{r}
+# download.file("https://github.com/mastoffel/nes_microbiome/blob/master/microbiome_composition_funs.R")
+```
+
+### Load packages
+```{r, message = FALSE}
+library(pacman)
+p_load(phyloseq, tidyverse, msa, inbreedR, rptR, lme4, DESeq2, 
+       dada2, phangorn, wesanderson, grid, cowplot, readxl, RColorBrewer, 
+       blogdown, patchwork, Demerelate, vegan, ecodist, reshape2, microbiome,
+       kableExtra, forcats, broom, simpleboot)
+# library(partR2)
+source("martin.R")
+source("microbiome_composition_funs.R")
+```
+
+
+
