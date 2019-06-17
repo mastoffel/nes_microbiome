@@ -15,6 +15,10 @@ load("../data/processed/ps0.RData")
 # load abundance and prevalence filtered phyloseq object ps3
 load("../data/processed/ps3.RData")
 
+health_data <- read_xlsx("../data/processed/health_data.xlsx") %>% 
+                dplyr::rename(health_status = "Health status",
+                              id = "ID")
+
 # Microbiome composition -------------------------------------------------------
 
 # select phylum, transform to relativ abundancens and filter above 1% for plotting
@@ -192,9 +196,6 @@ colpal <- wes_palette("Moonrise2", 3, type = "discrete")
 ps_ord <- ordinate(ps_vst, "MDS", "bray")
 # calculate axis length relationships according to eigenvalues
 evals <- ps_ord$values$Eigenvalues
-
-#plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint")
-
 # extract data to plot
 p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", 
                             justDF = TRUE, axes = 1:4)
@@ -219,6 +220,41 @@ p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
     
 p_ord_plot
 # ggsave("../figures/Fig1_sex_time_MDS_new.jpg", p_ord_plot, width = 6, height = 4)
+
+
+# check health ----------------------------
+samples_t1 <- subset_samples(ps_vst, timepoint == "T3")
+new_dat <- arrange(sample_data(samples_t1), id) %>% 
+                              cbind(health_data[, -1]) 
+rownames(new_dat) <- new_dat$id
+sample_data(samples_t1) <- new_dat                                
+
+ps_ord <- ordinate(samples_t1, "MDS", "bray")
+# calculate axis length relationships according to eigenvalues
+evals <- ps_ord$values$Eigenvalues
+# extract data to plot
+
+p_ord_df <- plot_ordination(samples_t1, ps_ord, shape = "sex", color = "health_status", 
+                            justDF = TRUE, axes = 1:4)
+
+ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
+  geom_point(size = 3.5, alpha = 0.8, aes(shape = sex, fill = health_status)) +
+  #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
+  #theme_martin() +
+  scale_shape_manual(values = c(21,24), name = "Sex") +
+ ## scale_fill_manual(values = colpal, name = "Timepoint") +
+  coord_fixed(sqrt(evals[2] / evals[1])) +
+  theme(legend.position = "bottom",
+        legend.direction = "horizontal") +
+  xlab("Axis 1 [28,5%]") +
+  ylab("Axis 2 [13,4%]") +
+  theme(panel.grid = element_blank(),
+        axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.ticks = element_line(colour = "black", size = 0.3)) +
+  guides(fill=guide_legend(override.aes=list(shape=21)))
+
+
 
 # Ordination outlier plot ------------------------------------------------------
 # This plot is to check whether samples with low read abundances
@@ -479,7 +515,6 @@ boot_div_mod
 R2_div <- partGaussian(div_mod, partvars = c("sex", "timepoint"), nboot = 1000) 
 # calculate repeatability
 rpt_div <- rptGaussian(Shannon ~ (1|individual),grname = "individual", data = diversity_df)#"timepoint"
-
 
 # modeling beta diversity: permanova  ------------------------------------------
 

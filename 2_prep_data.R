@@ -17,6 +17,18 @@ samples_out <- rownames(seqtab_nochim)
 # make data.frame
 nes_df <- data.frame("id" = samples_out)
 
+# health data inferred from blood cells
+health_data_t1 <- read_xlsx("../data/processed/health_data.xlsx") %>% 
+    mutate(ID = str_replace(ID, "MA", "Ma"),
+           ID = paste0(ID, "T1"))
+health_data_t2 <- read_xlsx("../data/processed/health_data.xlsx", sheet = 2) %>% 
+    mutate(ID = str_replace(ID, "MA", "Ma"),
+           ID = paste0(ID, "T3"))
+health_data <- rbind(health_data_t1, health_data_t2) %>% 
+            dplyr::rename(health_status = "Health status",
+                          id = ID,
+                          category = Category) 
+
 # read and process other northern elephant seal data
 nes_sampling <- read_xlsx("../data/processed/sampling_data_processed.xlsx") %>% 
     dplyr::rename(id = ID,
@@ -26,6 +38,7 @@ nes_sampling <- read_xlsx("../data/processed/sampling_data_processed.xlsx") %>%
     mutate(id = str_replace(id, "17BEMA0", "17BEMa")) %>% 
     mutate(id = str_replace(id, "17BEMA", "17BEMa")) %>% 
     mutate(id = str_c(id, timepoint)) %>% 
+    left_join(health_data, by = "id") %>% 
     mutate(id = str_replace(id, "T1", "")) %>% 
     mutate(sex = ifelse(sex == "M", "F", "M")) %>% 
     mutate(individual = str_replace(id, "T[2,3]", "")) %>% 
