@@ -15,9 +15,6 @@ load("../data/processed/ps0.RData")
 # load abundance and prevalence filtered phyloseq object ps3
 load("../data/processed/ps3.RData")
 
-health_data <- read_xlsx("../data/processed/health_data.xlsx") %>% 
-                dplyr::rename(health_status = "Health status",
-                              id = "ID")
 
 # Microbiome composition -------------------------------------------------------
 
@@ -222,58 +219,45 @@ p_ord_plot
 # ggsave("../figures/Fig1_sex_time_MDS_new.jpg", p_ord_plot, width = 6, height = 4)
 
 
-# check health ----------------------------
-samples_t1 <- subset_samples(ps_vst, timepoint == "T3")
-new_dat <- arrange(sample_data(samples_t1), id) %>% 
-                              cbind(health_data[, -1]) 
-rownames(new_dat) <- new_dat$id
-sample_data(samples_t1) <- new_dat                                
+# Ordination health  -----------------------------------------------------------
 
-ps_ord <- ordinate(samples_t1, "MDS", "bray")
-# calculate axis length relationships according to eigenvalues
+#ps_vst_M <- subset_samples(ps_vst, sex == "F") 
+# multidimensional scaling based on bray-curtis
+ps_ord <- ordinate(ps_vst, "MDS", "bray")
 evals <- ps_ord$values$Eigenvalues
-# extract data to plot
+p_ord_df <- plot_ordination(ps_vst, ps_ord, justDF = TRUE, axes = 1:10) %>% 
+            mutate(health_status = as.numeric(health_status)) %>% 
+            mutate(health_status = ifelse(is.na(health_status), "not_sampled", health_status))
+          
+# p_ord_T13 <- plot_ordination(ps_vst_T13, ps_ord, shape = "sex", color = "health_status",
+#                             justDF = TRUE, axes = 1:4) %>% 
+#   mutate(health_status = as.factor(as.numeric(health_status)))
+data_sub <- filter(p_ord_df, timepoint %in% c("T1", "T3")) %>% 
+            filter(category != "NA")
 
-p_ord_df <- plot_ordination(samples_t1, ps_ord, shape = "sex", color = "health_status", 
-                            justDF = TRUE, axes = 1:4)
-
-ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
-  geom_point(size = 3.5, alpha = 0.8, aes(shape = sex, fill = health_status)) +
-  #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
-  #theme_martin() +
+#plotcols <- c("#8da0cb", "#fc8d62", "grey90")
+plotcols <- c(wes_palette("Royal1")[2],"#39312F", "grey90")
+p_health_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
+  geom_point(size = 3.5, alpha = 0.6, fill = "grey90", stroke = 0.2) +
+  geom_point(data = data_sub, 
+             aes(fill=health_status),
+             size = 3.5, alpha = 0.8, stroke = 0.5) +
   scale_shape_manual(values = c(21,24), name = "Sex") +
- ## scale_fill_manual(values = colpal, name = "Timepoint") +
+  scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
+  scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + #, limits = c(-0.4, 0.4)
+  scale_fill_manual("Health status", values = c(plotcols), labels = c("Healthy", "Not healthy")) +
   coord_fixed(sqrt(evals[2] / evals[1])) +
-  theme(legend.position = "bottom",
-        legend.direction = "horizontal") +
   xlab("Axis 1 [28,5%]") +
   ylab("Axis 2 [13,4%]") +
+  guides(shape = FALSE,
+         fill = guide_legend(override.aes = list(shape = c(22,22))),
+         keywidth = 1) +
   theme(panel.grid = element_blank(),
         axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
-        axis.ticks = element_line(colour = "black", size = 0.3)) +
-  guides(fill=guide_legend(override.aes=list(shape=21)))
-
-
-
-# Ordination outlier plot ------------------------------------------------------
-# This plot is to check whether samples with low read abundances
-# are large outliers.
-p_ord_plot_outlier <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
-    geom_point(size = 3, alpha = 0.8, aes(color = abundance)) +
-    #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
-    theme_martin() +
-    theme(panel.grid = element_blank()) +
-    scale_x_discrete(labels = c("")) +
-    #scale_shape_manual(values = c(21,2))+
-    #scale_color_manual(values = colpal) +
-    coord_fixed(sqrt(evals[2] / evals[1])) +
-    theme(legend.position = "bottom",
-        legend.direction = "horizontal") +
-    xlab("Axis 1 [28,4%]") +
-    ylab("Axis 2 [13,3%]")
-
-p_ord_plot_outlier
+        axis.ticks = element_line(colour = "black", size = 0.3),
+        legend.position = "bottom") 
+p_health_plot
 
 # Ordination within-individual similarity plot  --------------------------------
 set.seed(25)
@@ -292,7 +276,7 @@ p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
   geom_polygon(data = data_sub, 
                aes(col=individual, fill=individual), alpha = 0.5, size = 0.5) + # , fill=NA
   scale_shape_manual(values = c(21,24), name = "Sex") +
- scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
+  scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
   scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + #, limits = c(-0.4, 0.4)
   #scale_shape_manual(values = c(21,2))+
   #scale_shape_manual(values = c(21,24), name = "Sex") +
@@ -312,13 +296,31 @@ p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
         legend.position = "bottom") 
  
 
-p_full <- plot_grid(p_ord_plot, p_host, labels = c("A", "B"))
+p_full <- plot_grid(p_ord_plot, p_host, p_health_plot, labels = c("A", "B", "C"), ncol = 2)
 p_full 
-p_full_vert <-  p_ord_plot / p_host
 #ggsave("../figures/beta_div.jpg",plot = p_full, width = 10, height = 3.8)
 #ggsave("../figures/beta_div_vert.jpg",plot = p_full_vert, width = 6, height = 7)
+#ggsave("../figures/beta_div3.jpg",plot = p_full, width = 5.5, height = 12) # one col
+ggsave("../figures/beta_div3.jpg",plot = p_full, width = 10, height = 8)
 
+# Ordination outlier plot ------------------------------------------------------
+# This plot is to check whether samples with low read abundances
+# are large outliers.
+p_ord_plot_outlier <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
+  geom_point(size = 3, alpha = 0.8, aes(color = abundance)) +
+  #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
+  theme_martin() +
+  theme(panel.grid = element_blank()) +
+  scale_x_discrete(labels = c("")) +
+  #scale_shape_manual(values = c(21,2))+
+  #scale_color_manual(values = colpal) +
+  coord_fixed(sqrt(evals[2] / evals[1])) +
+  theme(legend.position = "bottom",
+        legend.direction = "horizontal") +
+  xlab("Axis 1 [28,4%]") +
+  ylab("Axis 2 [13,3%]")
 
+p_ord_plot_outlier
 
 # plotting time trends as supplementary figures -----------------------------------------------------------------------------
 ps_rel <- transform_sample_counts(ps3, function(x) x/sum(x))
@@ -462,10 +464,10 @@ p_genus
 
 
 # alpha diversity across time and sex  -----------------------------------------
-diversity_df <- estimate_richness(ps, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
+diversity_df <- estimate_richness(ps0, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
                     tibble::rownames_to_column("id") %>% 
                     mutate(id = str_replace(id, "X", "")) %>% 
-                    left_join(as_tibble(sample_data(ps)), by = "id")
+                    left_join(as_tibble(sample_data(ps0)), by = "id")
 
 colpal_cavalanti <- wes_palette("Cavalcanti1", 2, type = "discrete")
 as.character(wes_palette("Darjeeling2"))
@@ -491,18 +493,55 @@ p_div <- ggplot(diversity_df, aes(timepoint, Shannon, by = sex)) + #colour = sex
     #scale_color_manual(values = colpal_moonrise, name = "Sex") +
     ylab("Shannon diversity\n")+
     xlab("\nTimepoint")+
+    ylim(1.8, 5) +
     theme(plot.title = element_text(hjust = 0.5, size = 12),
           panel.grid = element_blank(),
           axis.text = element_text(colour = "black"),
           axis.line = element_line(colour = "black", size = 0.3, linetype = 1),
-          axis.ticks = element_line(colour = "black", size = 0.3, linetype = 1))
+          axis.ticks = element_line(colour = "black", size = 0.3, linetype = 1),
+          plot.margin = margin(t = 25)) # plot.margin = margin(t = 25)
     #scale_x_discrete(labels = stri_unescape_unicode("a\\u0105!\\u0032\\n")) 
 p_div
 # ggsave("../figures/Fig4_diversity.jpg", p_div, width = 4.5, height = 2.9)
 
+# alpha_diversity across health ------------------------------------------------
+plotcols <- c("#39312F", wes_palette("Royal1")[2])
+diversity_df2 <- diversity_df %>% filter(!is.na(health_status)) %>%  # "Shannon", "Simpson", "InvSimpson", "Observed", "Fisher"
+                  mutate(health_status = ifelse(health_status == 1, 0, 1)) %>% 
+                  mutate(health_status = as.factor(health_status))
+
+library(egg)
+my_tag <- c("T1", "T3")
+p_div2 <- ggplot(diversity_df2, aes(sex, Shannon, by = health_status)) + #colour = sex
+  geom_boxplot(alpha = 0.4, outlier.shape = NA, aes(fill = health_status)) + 
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), size = 2.3, alpha = 0.8,  
+             col = "black", aes(shape = sex, fill = health_status), stroke =0.7) +
+  facet_wrap(~timepoint) +
+  scale_fill_manual("Health status", values = c(plotcols), labels = c( "Healthy", "Not healthy")) +
+  scale_shape_manual(values = c(21,24), name = "Sex", guide = FALSE) +
+  theme_martin(base_family = "Helvetica", highlight_family = "Helvetica") +
+  ylab("Shannon diversity\n")+
+  xlab("\nSex")+
+  ylim(1.8, 5) +
+  scale_x_discrete(labels = c("Female", "Male")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 12),
+        panel.grid = element_blank(),
+       # strip.text = element_text(size = 11), #face="bold", 
+        strip.text = element_blank(),
+        axis.text = element_text(colour = "black"),
+        axis.line = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.ticks = element_line(colour = "black", size = 0.3, linetype = 1),
+        plot.margin = margin(t = 25)) 
+p_div2_final <- tag_facet(p_div2, tag_pool = my_tag, open="",close="", x = 1.5, y=5, fontface = 1)
+
+p_div_full <- plot_grid(p_div, p_div2_final, labels = c("A", "B"), ncol = 2, rel_widths = c(0.45,0.55), scale = 0.95)
+p_div_full
+ggsave("../figures/Fig4_diversity2.jpg", p_div_full, width = 8.5, height = 3.1)
 
 # modeling alpha diversity -----------------------------------------------------
-# mixed model
+
+
+# sex timepoint and individual
 div_mod <- lmer(Shannon ~ sex + timepoint + (1|individual), data = diversity_df)
 summary(div_mod)
 tidy(div_mod)
@@ -516,13 +555,29 @@ R2_div <- partGaussian(div_mod, partvars = c("sex", "timepoint"), nboot = 1000)
 # calculate repeatability
 rpt_div <- rptGaussian(Shannon ~ (1|individual),grname = "individual", data = diversity_df)#"timepoint"
 
+library(boot)
+# health
+diversity_df %>% 
+  group_by(sex, timepoint) %>% 
+  summarise(mean_health_status = mean(as.numeric(as.character(health_status)), na.rm = TRUE))
+
+div_mod2 <- lm(Shannon ~ sex + timepoint + health_status, data = diversity_df)
+summary(div_mod2)
+
+
+diversity_df %>% filter(timepoint == "T1") %>% 
+ lm(Shannon ~ sex + health_status, data = .) -> div_mod2 
+summary(div_mod2)
+diversity_df %>% filter(timepoint == "T3") %>% 
+  lm(Shannon ~ sex + health_status, data = .) -> div_mod3
+summary(div_mod3)
 # modeling beta diversity: permanova  ------------------------------------------
 
 # all permanova models based on variance-stabilised data
 
 # overall effects 
 metadata <- as(sample_data(ps_vst), "data.frame")
-mod_full <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual,
+mod_full <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual + health_status,
     data = metadata, by = "terms")
 mod_full
 

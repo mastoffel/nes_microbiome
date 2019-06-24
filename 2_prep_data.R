@@ -27,7 +27,8 @@ health_data_t2 <- read_xlsx("../data/processed/health_data.xlsx", sheet = 2) %>%
 health_data <- rbind(health_data_t1, health_data_t2) %>% 
             dplyr::rename(health_status = "Health status",
                           id = ID,
-                          category = Category) 
+                          category = Category) %>% 
+            mutate(health_status = ifelse(health_status  == "NA", NA, health_status ))
 
 # read and process other northern elephant seal data
 nes_sampling <- read_xlsx("../data/processed/sampling_data_processed.xlsx") %>% 
