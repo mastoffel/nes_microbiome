@@ -15,6 +15,18 @@ load("../data/processed/ps0.RData")
 # load abundance and prevalence filtered phyloseq object ps3
 load("../data/processed/ps3.RData")
 
+# Variance stabilizing transformation ==========================================
+
+# convert to deseq
+nes_dds <- phyloseq_to_deseq2(ps3, ~1)
+# estimate size factors with not including 0 in geometric mean calc
+nes_dds  <- estimateSizeFactors(nes_dds, type = "poscounts") %>% 
+  estimateDispersions(fitType = "local")
+# create new phyloseq object with variance stabilised ASV table
+ps_vst <- ps3
+otu_table(ps_vst) <- otu_table(getVarianceStabilizedData(nes_dds), 
+                               taxa_are_rows = TRUE)
+
 
 # Microbiome composition -------------------------------------------------------
 
@@ -170,17 +182,6 @@ p3
 qplot(log(rowSums(otu_table(ps3)))) +
     xlab("Logged counts-per-sample")
 
-# Variance stabilizing transformation ==========================================
-
-# convert to deseq
-nes_dds <- phyloseq_to_deseq2(ps3, ~1)
-# estimate size factors with not including 0 in geometric mean calc
-nes_dds  <- estimateSizeFactors(nes_dds, type = "poscounts") %>% 
-                estimateDispersions(fitType = "local")
-# create new phyloseq object with variance stabilised ASV table
-ps_vst <- ps3
-otu_table(ps_vst) <- otu_table(getVarianceStabilizedData(nes_dds), 
-                               taxa_are_rows = TRUE)
 
 # Ordination sex / time plot ===================================================
 
@@ -540,7 +541,6 @@ ggsave("../figures/Fig4_diversity2.jpg", p_div_full, width = 8.5, height = 3.1)
 
 # modeling alpha diversity -----------------------------------------------------
 
-
 # sex timepoint and individual
 div_mod <- lmer(Shannon ~ sex + timepoint + (1|individual), data = diversity_df)
 summary(div_mod)
@@ -555,29 +555,34 @@ R2_div <- partGaussian(div_mod, partvars = c("sex", "timepoint"), nboot = 1000)
 # calculate repeatability
 rpt_div <- rptGaussian(Shannon ~ (1|individual),grname = "individual", data = diversity_df)#"timepoint"
 
-library(boot)
 # health
 diversity_df %>% 
+  filter(!is.na(health_status)) %>% 
   group_by(sex, timepoint) %>% 
-  summarise(mean_health_status = mean(as.numeric(as.character(health_status)), na.rm = TRUE))
+  summarise(prop_healthy = mean(as.numeric(as.character(health_status))))
 
-div_mod2 <- lm(Shannon ~ sex + timepoint + health_status, data = diversity_df)
+div_t1t3 <- diversity_df %>% 
+  filter(timepoint %in% c("T1", "T3"))
+
+div_mod2 <- lmer(Shannon ~ sex + health_status + timepoint + (1|individual), data = div_t1t3)
 summary(div_mod2)
+plot(div_mod2)
+boot_div_mod2 <- confint(div_mod2, method = c("boot"), nsim = 1000)
+
+library(insight)
+var_comps <- get_variance(div_mod2)
+R2 <- var_comps$var.fixed / (var_comps$var.fixed + var_comps$var.residual + 0) # 0 variance in random effect
+
+partR2(div_mod2, partvars = c("sex", "timepoint", "health_status"))
 
 
-diversity_df %>% filter(timepoint == "T1") %>% 
- lm(Shannon ~ sex + health_status, data = .) -> div_mod2 
-summary(div_mod2)
-diversity_df %>% filter(timepoint == "T3") %>% 
-  lm(Shannon ~ sex + health_status, data = .) -> div_mod3
-summary(div_mod3)
 # modeling beta diversity: permanova  ------------------------------------------
 
 # all permanova models based on variance-stabilised data
 
 # overall effects 
 metadata <- as(sample_data(ps_vst), "data.frame")
-mod_full <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual + health_status,
+mod_full <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual,
     data = metadata, by = "terms")
 mod_full
 
@@ -612,6 +617,21 @@ sample_data(ps_vst)$individual <- as.factor(sample_data(ps_vst)$individual)
 p_ord_rpt <- plot_ordination(ps_vst, ps_ord, color = "individual", type = "samples")
 p_ord_rpt  + geom_polygon(aes(fill=individual), alpha = 0.05) + geom_point(size=1) + ggtitle("samples") +
     theme_martin()
+
+
+# health (only T1 and T3)
+ps_vst_health <- subset_samples(ps_vst, !is.na(health_status))
+metadata <- as(sample_data(ps_vst_health), "data.frame") 
+mod_full <- adonis(phyloseq::distance(ps_vst_health, method="bray") ~ health_status + sex + timepoint + individual,
+                   data = metadata, by = "terms")
+mod_full
+
+# beta dispersion
+mod <- betadisper(d = phyloseq::distance(ps_vst_health, method="bray"), group = metadata$health_status)
+anova(mod) # parametric anova
+TukeyHSD(mod) # Tukey Honest Significant Difference Method
+permutest(mod) # Permutation test
+
 
 
 # experimental repeatability for distance matrices -----------------------------
