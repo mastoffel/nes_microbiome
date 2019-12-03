@@ -1,19 +1,10 @@
+# makes a phylogeny from ASVs
 # phyloseq
 library(phyloseq)
-library(ggplot2)
-library(dplyr)
-library(stringr)
 library(msa)
-library(inbreedR)
-library(readxl)
-library(stringr)
-library(dplyr)
-library(rptR)
-library(plyr)
-library(reshape2)
-library(lme4)
 library(DESeq2)
 library(dada2)
+library(tidyverse)
 
 # todo: filter fecal sample or let it in!
 

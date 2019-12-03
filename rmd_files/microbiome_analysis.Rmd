@@ -1,0 +1,445 @@
+---
+title: "Northern elephant seal gut microbiome analysis"
+output:
+ html_document:
+        toc: true
+        toc_float: true
+        code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Overview
+
+This document provides the R code to reproduce the figures and analyses in our
+paper "Early sexual dimorphism, development and genetic basis of the gut microbiome
+in northern elephant seals". If you have any questions, please contact me at
+martin.adam.stoffel[at]gmail.com.
+
+We collected rectal samples from 40 northern elephant seal pups across their
+7-week long post-weaning period. From each individual, we collected 3 swabs at
+28, 43 and 58 days of age, resulting in a total of 112 microbiome samples (some 
+individuals died or were lost at some point). 
+
+To quantify the microbial communities, we sequenced the V3-V4 region of the
+16S rRNA gene, using paired-end reads on an Illumina MiSeq. The paired-end
+reads were merged into amplicon sequence variants (ASVs) with DADA2. These
+were then assembled into a phyloseq object, sampling data (individual ID,
+sex etc.) was added and the microbial ASVs were either barely filtered or
+stringently filtered according to their prevalence and abundance. These
+steps can be reproduced using scripts 1_ to 3_ in the [GitHub repo](https://github.com/mastoffel/nes_microbiome).
+
+
+```{r}
+# download.file("https://github.com/mastoffel/nes_microbiome/blob/master/microbiome_composition_funs.R")
+```
+
+### Load packages
+```{r, message = FALSE}
+library(pacman)
+p_load(phyloseq, tidyverse, msa, inbreedR, rptR, lme4, DESeq2, 
+       dada2, phangorn, wesanderson, grid, cowplot, readxl, RColorBrewer, 
+       blogdown, patchwork, Demerelate, vegan, ecodist, reshape2, microbiome,
+       kableExtra, forcats, broom, simpleboot, devtools)
+#install_github("mastoffel/partR2")
+library(partR2)
+source("martin.R")
+source("microbiome_composition_funs.R")
+```
+
+### Load data
+
+Here, we load two phyloseq objects. One is barely filtered and will be used
+for the analyses of alpha diversity (ps0). The other one is filter using
+abundances and prevalences and will be used for all other analyses.
+```{r}
+# load (mostly) unfiltered phyloseq object ps0
+load("../data/processed/ps0.RData")
+# load abundance and prevalence filtered phyloseq object ps3
+load("../data/processed/ps3.RData")
+
+ps0 # unfiltered
+ps3 # filtered
+```
+
+#### Let's have a look at the what the phyloseq objects contain.
+
+First of all, there is the otu_table, which in our case is a ASV table,
+containing the exact variants.
+```{r}
+otu_table(ps3)[1, 1:2]
+```
+
+
+Second there is the sample data, which we added previously. 
+```{r}
+sample_data(ps3)[1:3, ]
+```
+
+
+Third, there is the taxonomy table, which assigns a taxonomy to every ASV.
+Here is an example for the first one.
+```{r}
+tax_table(ps3)[1, 1:3]
+```
+
+
+The fourth part is data underlying a phylogenetic tree of all ASVs, which is not
+shown.
+
+
+### Overall gut microbiome composition
+
+Figure 1 shows the distribution of microbial phyla across individuals and
+sampling timepoints. Each bar represents one individual and each row one 
+timepoint. 
+
+```{r}
+# select phylum, transform to relativ abundancens and filter above 1% for plotting
+nes_phylum <- ps3 %>% 
+  tax_glom(taxrank = "Phylum") %>% 
+  transform_sample_counts(function(x) {x/sum(x)}) %>% 
+  psmelt() %>% 
+  filter(Abundance > 0.01) %>% 
+  arrange(desc(Abundance))
+
+# barplot
+p_bar <- ggplot(nes_phylum, aes(individual, Abundance, fill = Phylum)) +
+  facet_grid(timepoint~.)+
+  geom_bar(stat = "identity") +
+  theme_martin(base_family = "Helvetica") +
+  #scale_fill_manual(values = phylum_colors) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_text(size=14), 
+        axis.title.y = element_text(size=14), 
+        axis.text.y = element_text(size=8))+
+  scale_fill_manual(values = c(wes_palette("Chevalier1")[1],wes_palette("FantasticFox1")[3:1],  
+                               wes_palette("IsleofDogs1")[c(2,1,3)] ), name = "Phylum") +
+  #scale_fill_brewer(type = "qual", palette = "Set3") +
+  guides(fill = guide_legend(keywidth = 1, keyheight = 1)) +
+  theme(legend.text = element_text(size = 11),legend.title = element_text(face="bold")) +
+  ylab("Relative abundance \n") +
+  xlab("Individuals") +
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()) +
+        #axis.line = element_line(size = 0.5, colour = "black")) +
+  theme(panel.spacing.x = unit(10, "lines"))+
+  theme(strip.text.y = element_text(size=12)) 
+p_bar
+```
+
+
+Next, we calculate mean and sd ASVs per sample.
+
+```{r}
+ps_otu <- as.data.frame(otu_table(ps3))
+asv_per_sample <- rowSums(ps_otu > 0)
+mean(asv_per_sample) 
+sd(asv_per_sample) 
+```
+
+### Core gut microbiome
+Supposedly, at each point during the elephant seal development, there should
+be a number of gut microbes which are shared by most individuals in the 
+population, the core microbiome. Here we define the core microbiome as 
+ASVs which are shared among at least 90% of individuals. 
+```{r}
+# Calculate relative abundances
+ps_rel <- microbiome::transform(ps3, "compositional")
+
+# Core Microbiome for each timepoint
+core_microbiome <- function(timepoint, ps) {
+    # ps_rel_t1 <- subset_samples(ps_rel, timepoint == "T1")
+    ps_tp <- prune_samples(sample_data(ps)$timepoint %in% timepoint, ps)
+    # get core microbiome (prevalence = 90%)
+    core_taxa_tp <- core(ps_tp, detection = 0, prevalence = 90/100)
+    # function for assessing means and medians of relative abundances
+    x <- otu_table(core_taxa_tp)
+    # taxa_are_rows(x)
+    taxa_means <- round(colMeans(x), 4)
+    # taxa_medians <- apply(x, 2, median)
+    # get tax table
+    tp_tax_table <- as.data.frame(tax_table(core_taxa_tp)) %>% 
+        tibble::rownames_to_column("ASV") %>% 
+        mutate(`Mean rel. abundance %` = 100 * taxa_means) %>% 
+        arrange(desc(`Mean rel. abundance %`)) 
+}
+
+# three timepoints
+all_timepoints <- c("T1", "T2", "T3")
+core_across_time <- purrr::map(all_timepoints, core_microbiome, ps_rel)
+names(core_across_time) <- all_timepoints
+```
+
+And create the Supplementary tables 1-3:
+```{r, eval=FALSE, echo=TRUE}
+# Core microbiome tables -------------------------------------------------------
+linesep <- c("") 
+
+# core microbiome table in Supplementary
+# uncomment lines for actually saving tables
+for (i in all_timepoints) {
+    core_timepoint <- dplyr::select(core_across_time[[i]], -ASV)
+    kable(core_timepoint, format = "latex", booktabs = TRUE, escape = T, 
+          linesep = linesep, align = "l") %>% 
+          kable_styling(latex_options = c( "scale_down")) %>% 
+          row_spec(0, bold = T) # %>% 
+          kable_as_image(paste0("../tables/core_microbiome_", i), keep_pdf = TRUE, 
+                       file_format = "jpeg")
+}
+```
+
+### Variance-stabilising transformation
+
+For all analyses and plots of beta diversity, we use the variance-stabilising
+transformation in Deseq2 on the ASV abundance data, resulting in a new
+phyloseq object, ps_vst.
+
+```{r, message=FALSE}
+# convert to deseq
+nes_dds <- phyloseq_to_deseq2(ps3, ~1)
+# estimate size factors with not including 0 in geometric mean calc
+nes_dds  <- estimateSizeFactors(nes_dds, type = "poscounts") %>% 
+                estimateDispersions(fitType = "local")
+# create new phyloseq object with variance stabilised ASV table
+ps_vst <- ps3
+otu_table(ps_vst) <- otu_table(getVarianceStabilizedData(nes_dds), 
+                               taxa_are_rows = TRUE)
+```
+
+### Multidimensional scaling
+Now we use metric dimensional scaling for plotting microbiome similarity across 
+samples, which we base on the bray-curtis similarity between pairwise samples.
+```{r}
+# for plotting
+get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+colpal <- c(  "#0000ff", "#ffb14e", "#ea5f94"  )
+colpal <- wes_palette("Moonrise2", 3, type = "discrete")   
+
+# multidimensional scaling based on bray-curtis
+ps_ord <- ordinate(ps_vst, "MDS", "bray")
+# calculate axis length relationships according to eigenvalues
+evals <- ps_ord$values$Eigenvalues
+# extract data to plot
+p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", 
+                            justDF = TRUE, axes = 1:4)
+
+```
+
+### Plotting beta diversity
+And plotting the MDS. Here we scale the axes by their explained variation, 
+28% across axis 1 and 13% across axis 2. Both sex and timepoint are color coded
+and we can see how samples from each sex are more similar to each other, and
+also how samples taking at a certain age (or timepoint) are more similar in their
+microbial composition.
+```{r}
+# plot
+p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
+    geom_point(size = 3.5, alpha = 0.8, aes(shape = sex, fill = timepoint)) +
+    #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
+    #theme_martin() +
+    scale_shape_manual(values = c(21,24), name = "Sex") +
+    scale_fill_manual(values = colpal, name = "Timepoint") +
+    coord_fixed(sqrt(evals[2] / evals[1])) +
+    theme(legend.position = "bottom",
+          legend.direction = "horizontal") +
+    xlab("Axis 1 [28,5%]") +
+    ylab("Axis 2 [13,4%]") +
+    theme(panel.grid = element_blank(),
+        axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.ticks = element_line(colour = "black", size = 0.3)) +
+    guides(fill=guide_legend(override.aes=list(shape=21)))
+    
+p_ord_plot
+```
+
+A major advantage of longitudinal sampling is that we can actually quantify how
+similar repeated microbiome samples from the same individual are. We can use
+the same MDS plot, but this time color-code samples coming from the same
+individual. To avoid overplotting, we do this only for 6 out of 40 individuals.
+Here is the code for the combined figure from the paper.
+
+```{r,  fig.width = 9}
+set.seed(25)
+plotcols <- sample(c(wes_palette("FantasticFox1")[-4], wes_palette("GrandBudapest2")[-1], wes_palette("Moonrise2")), 6)
+# good inds to show
+# 17BEMa32, 17BEMa27 or 24, 17BEMa38, 17BEMa3
+set.seed(113)
+data_sub <- filter(p_ord_df, individual %in% sample(unique(p_ord_df$individual), 8)) %>% 
+              filter(!(individual %in% c("17BEMa4", "17BEMa13")))
+
+p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
+  geom_point(size = 3.5, alpha = 0.6, fill = "grey90", stroke = 0.2) +
+  geom_point(data = data_sub, 
+             aes(col=individual, fill=individual),
+             size = 3.5, alpha = 0.9, stroke = 0.5) +
+  geom_polygon(data = data_sub, 
+               aes(col=individual, fill=individual), alpha = 0.5, size = 0.5) + # , fill=NA
+  scale_shape_manual(values = c(21,24), name = "Sex") +
+ scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
+  scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + #, limits = c(-0.4, 0.4)
+  #scale_shape_manual(values = c(21,2))+
+  #scale_shape_manual(values = c(21,24), name = "Sex") +
+  scale_color_manual(values = c(plotcols), labels = rep("", 6)) +
+  scale_fill_manual(values = c(plotcols), labels = rep("", 6)) +
+  coord_fixed(sqrt(evals[2] / evals[1])) +
+  xlab("Axis 1 [28,5%]") +
+  ylab("Axis 2 [13,4%]") +
+  guides(color= FALSE, shape = FALSE,
+         fill = guide_legend("Host", nrow = 1,
+                             override.aes=list(fill=plotcols, col = plotcols, shape=c(17,16,16,17,17,16))),
+         keywidth = 1) +
+  theme(panel.grid = element_blank(),
+        axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
+        axis.ticks = element_line(colour = "black", size = 0.3),
+        legend.position = "bottom") 
+ 
+
+p_full <- plot_grid(p_ord_plot, p_host, labels = c("A", "B"))
+p_full 
+```
+
+### Modeling beta diversity
+
+Now we are modeling the effects of sex, timepoint and host on gut microbiome
+similarity using PERMANOVA. All beta diversity modeling is done on
+variance-stabilised microbial abundances.
+
+First of all, we are constructing a model with the full microbial abundance data.
+To calculate a microbial similarity matrix, we use the bray-curtis dissimilarity.
+The R2s of timepoint, sex and individual are 15, 15 and 40%, respectively.
+```{r}
+# overall effects 
+metadata <- as(sample_data(ps_vst), "data.frame")
+mod_full <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual,
+    data = metadata, by = "terms")
+mod_full
+```
+
+Next, we are interested in how large the effect of the contrast between
+timepoint t1 and t2 is (The R^2 is 0.10)
+
+```{r}
+# t1 vs t2
+ps_vst_t1t2 <- subset_samples(ps_vst, timepoint %in% c("T1", "T2"))
+metadata_t1t2 <- as(sample_data(ps_vst_t1t2), "data.frame")
+mod_t1t2 <- adonis(phyloseq::distance(ps_vst_t1t2, method="bray") ~ timepoint + sex + individual,
+    data = metadata_t1t2, by = "terms")
+mod_t1t2
+```
+
+Then we look at the contrast between t3 and t2.
+```{r}
+# t2 vs t3
+ps_vst_t2t3 <- subset_samples(ps_vst, timepoint %in% c("T2", "T3"))
+metadata_t2t3 <- as(sample_data(ps_vst_t2t3), "data.frame")
+mod_t2t3 <- adonis(phyloseq::distance(ps_vst_t2t3, method="bray") ~ timepoint + sex + individual,
+    data = metadata_t2t3, by = "terms")
+mod_t2t3
+```
+
+PERMANOVA has the assumption that the dispersion between groups is more or less
+equal. We can test this for different groups, such as sexes
+or samples within certain timepoints using the betadisper function.
+```{r}
+# group dispersion assumption testing
+mod <- betadisper(d = phyloseq::distance(ps_vst, method="bray"), group = metadata$sex)
+anova(mod) # parametric anova
+TukeyHSD(mod) # Tukey Honest Significant Difference Method
+permutest(mod) # Permutation test
+mod <- betadisper(d = phyloseq::distance(ps_vst, method="bray"), group = metadata$timepoint)
+anova(mod)
+TukeyHSD(mod)
+permutest(mod)
+```
+None of the tests is significant, indication equality of dispersion across all
+groups. 
+
+### Plotting alpha diversity
+
+To calculate alpha diversity, it is recommended to use unfiltered data to
+not bias the estimate. We therefore use the ps object, which contains the
+(nearly) unfiltered ASV data. First of all, we calculate diversity.
+
+```{r, message=FALSE, warning=FALSE}
+diversity_df <- estimate_richness(ps0, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
+                    tibble::rownames_to_column("id") %>% 
+                    mutate(id = str_replace(id, "X", "")) %>% 
+                    left_join(as_tibble(sample_data(ps0)), by = "id")
+```
+
+Then we plot alpha diversity across sexes and timepoints.
+```{r}
+colpal_cavalanti <- wes_palette("Cavalcanti1", 2, type = "discrete")
+as.character(wes_palette("Darjeeling2"))
+colpal_moonrise <- c("#899DA4",  "#79402E")
+
+set.seed(12)
+p_div <- ggplot(diversity_df, aes(timepoint, Shannon, by = sex)) + #colour = sex
+    geom_boxplot(alpha = 0.4, outlier.shape = NA, aes(fill = sex)) + #, aes(color = sex)
+    geom_point(position=position_jitterdodge(jitter.width = 0.3), size = 2.3, alpha = 0.8,  
+        col = "black", aes(shape = sex, fill = sex), stroke =0.7) +
+   # geom_jitter(size = 2.3, alpha = 0.8,  col = "black", aes(shape = sex, fill = sex), width = 0.3, stroke =0.7) + #shape = 21,
+    #scale_shape_manual(values = c(21,24))+
+    #facet_wrap(~timepoint) +
+    theme_minimal() +
+    scale_shape_manual(values = c(21,24), name = "Sex") +
+    scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
+    ylab("Shannon diversity\n")+
+    xlab("\nTimepoint")+
+    theme(plot.title = element_text(hjust = 0.5, size = 12),
+          panel.grid = element_blank(),
+          axis.text = element_text(colour = "black"),
+          axis.line = element_line(colour = "black", size = 0.3, linetype = 1),
+          axis.ticks = element_line(colour = "black", size = 0.3, linetype = 1))
+p_div
+```
+
+### Modelling alpha diversity
+
+To model alpha diversity, we use a simple linear mixed model with individual
+as a random effect to account for the repeated measures.
+```{r}
+# mixed model
+div_mod <- lmer(Shannon ~ sex + timepoint + (1|individual), data = diversity_df)
+# summary(div_mod)
+tidy(div_mod)
+```
+
+Then we do parametric bootstrapping to get confidence intervals around the
+model estimates. For the paper, we used a 1000 simulations which were reduced
+to 100 here.
+```{r}
+#VarCorr(div_mod)
+set.seed(17) 
+# parametric bootstraps
+boot_div_mod <- confint(div_mod, method = c("boot"), nsim = 100)
+boot_div_mod
+```
+We can see that there are differences in alpha diversity between the sexes,
+but not between either T2 nor T3 and T1.
+
+Then we can calculate the variance explained by each fixed effect (the
+partial R2), using the partGaussian function in the partR2 package. The
+package is on GitHub and not yet intended for public use. Again, the
+number of bootstraps was 1000 in the main analysis.
+```{r, message=FALSE}
+# calculate R2 with convidence intervals
+R2_div <- partR2(div_mod, partvars = c("sex", "timepoint"),data=diversity_df, nboot = 100) 
+R2_div
+```
+Finally, we were interested in the individual repeatability of alpha diversity
+across time. Here we use the rptR package. 
+```{r}
+# calculate repeatability
+rpt_div <- rptGaussian(Shannon ~ (1|individual),grname = "individual",
+                       data = diversity_df, nboot = 100)#"timepoint"
+```
+Unlike measures of beta diversity, gut microbial alpha diversity is not repeatable 
+across the post-weaning period in elephant seals.
+
+

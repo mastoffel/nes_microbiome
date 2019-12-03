@@ -1,10 +1,12 @@
+# Prepare sampling and health data and phyloseq objects
+
 library(tidyverse)
 library(readxl)
 library(phyloseq)
 
 # Load and prepare data --------------------------------------------------------
 
-# folder with ASV table 
+# folder with ASV table (in output/)
 input_folder <- "primer_clipped_reads_22_220230_pool"
 
 # load ASV table and ...
@@ -18,10 +20,10 @@ samples_out <- rownames(seqtab_nochim)
 nes_df <- data.frame("id" = samples_out)
 
 # health data inferred from blood cells
-health_data_t1 <- read_xlsx("../data/processed/health_data.xlsx") %>% 
+health_data_t1 <- read_xlsx("data/health_data.xlsx") %>% 
     mutate(ID = str_replace(ID, "MA", "Ma"),
            ID = paste0(ID, "T1"))
-health_data_t2 <- read_xlsx("../data/processed/health_data.xlsx", sheet = 2) %>% 
+health_data_t2 <- read_xlsx("data/health_data.xlsx", sheet = 2) %>% 
     mutate(ID = str_replace(ID, "MA", "Ma"),
            ID = paste0(ID, "T3"))
 health_data <- rbind(health_data_t1, health_data_t2) %>% 
@@ -31,7 +33,7 @@ health_data <- rbind(health_data_t1, health_data_t2) %>%
             mutate(health_status = ifelse(health_status  == "NA", NA, health_status ))
 
 # read and process other northern elephant seal data
-nes_sampling <- read_xlsx("../data/processed/sampling_data_processed.xlsx") %>% 
+nes_sampling <- read_xlsx("data/sampling_data_processed.xlsx") %>% 
     dplyr::rename(id = ID,
                   date = DATE,
                   territory = TERRITORY, 
@@ -78,4 +80,4 @@ ps0 <- phyloseq(otu_table(seqtab_nochim, taxa_are_rows = FALSE),
 ps0 <- subset_samples(ps0, id != "17BEMa11Fec")
 
 # save full phyloseq object
-save(ps0, file = "../data/processed/ps0.RData")
+save(ps0, file = "data/ps0.RData")

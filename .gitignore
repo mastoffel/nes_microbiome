@@ -4,4 +4,6 @@
 .Ruserdata
 .pdf
 .Rproj
+output/
+old/
 

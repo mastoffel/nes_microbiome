@@ -1,8 +1,8 @@
 # helper functions for microbiome analysis
-
-library("phyloseq")
-library("data.table")
-library("ggplot2")
+# these function probably mostly come from the phyloseq people
+library(phyloseq)
+library(data.table)
+library(ggplot2)
 
 # quick version of psmelt
 fast_melt <- function(physeq){
