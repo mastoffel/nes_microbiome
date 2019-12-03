@@ -1,0 +1,33 @@
+---
+title: "README"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Analysis pipeline
+
+_1_reads_to_ASVs.R_
+This is the DADA2 pipeline which goes all the way from raw reads to 
+amplicon sequence variants (ASVs)
+
+_2_prep_data.R_
+This script does some more preprocessing on the ASVs and integrates
+other sampling data, such as health.
+
+_3_filter_ASVs.R_
+Here, we do some more quality control and filtering of the ASVs.
+
+_4_full_analysis.R_
+This script contains the code to reproduce all analyses and figures 
+in the paper and the supplementary material.
+
+### Other scripts
+All other scripts are helper scripts which were used to to quality control
+for the microsatellites, or contain code for plotting or manipulation 
+of microbiome data.
+
+### Folders
+data contains all the data necessary to run script 4 with all analyses.

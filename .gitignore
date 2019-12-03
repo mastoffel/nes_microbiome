@@ -6,4 +6,6 @@
 .Rproj
 output/
 old/
+.gitignore
+DS_Store
 
