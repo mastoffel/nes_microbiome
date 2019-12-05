@@ -208,7 +208,7 @@ ps_ord <- ordinate(ps_vst, "MDS", "bray")
 evals <- ps_ord$values$Eigenvalues
 # extract data to plot
 p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", 
-                            justDF = TRUE, axes = 1:4)
+                            justDF = TRUE, axes = 1:5)
 
 # plot
 p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
@@ -592,15 +592,25 @@ quantile(R2s$t, probs = c(0.025, 0.975))
 
 # overall effects 
 metadata <- as(sample_data(ps_vst), "data.frame")
-mod_full <- adonis(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual,
-    data = metadata, by = "terms")
+mod_full <- adonis2(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual,
+    data = metadata, by = "terms", strata = "individual") # "terms"
 mod_full
+
+# sex effect at T1, T2 and T3 (check that repeated samples didn't effect sex effect) ======
+#
+sex_eff <- function(tpoint) {
+  ps_vst_t <- prune_samples( sample_data(ps_vst)$timepoint == tpoint, ps_vst)
+  metadata_t <- as(sample_data(ps_vst_t), "data.frame")
+  mod_t <- adonis(phyloseq::distance(ps_vst_t, method="bray") ~ sex, data = metadata_t)
+}
+all_sex_eff <- purrr::map(c("T1", "T2", "T3"), sex_eff)
 
 # t1 vs t2
 ps_vst_t1t2 <- subset_samples(ps_vst, timepoint %in% c("T1", "T2"))
 metadata_t1t2 <- as(sample_data(ps_vst_t1t2), "data.frame")
 mod_t1t2 <- adonis(phyloseq::distance(ps_vst_t1t2, method="bray") ~ timepoint + sex + individual,
     data = metadata_t1t2, by = "terms")
+
 # t2 vs t3
 ps_vst_t2t3 <- subset_samples(ps_vst, timepoint %in% c("T2", "T3"))
 metadata_t2t3 <- as(sample_data(ps_vst_t2t3), "data.frame")
@@ -632,9 +642,23 @@ p_ord_rpt  + geom_polygon(aes(fill=individual), alpha = 0.05) + geom_point(size=
 # health analysis (only T1 and T3)
 ps_vst_health <- subset_samples(ps_vst, !is.na(health_status))
 metadata <- as(sample_data(ps_vst_health), "data.frame") 
-mod_full <- adonis(phyloseq::distance(ps_vst_health, method="bray") ~ health_status + sex + timepoint + individual,
-                   data = metadata, by = "terms")
+mod_full <- adonis2(phyloseq::distance(ps_vst_health, method="bray") ~ health_status + sex + timepoint + individual,
+                   data = metadata, by = "terms", strata = "individual")
 mod_full
+
+# health effect at T1, T3 (analysis without repeated measures) =================
+ps_vst_health <- subset_samples(ps_vst, !is.na(health_status) & timepoint == "T1")
+metadata <- as(sample_data(ps_vst_health), "data.frame") 
+mod_health_t1 <- adonis2(phyloseq::distance(ps_vst_health, method="bray") ~ health_status + sex,
+                    data = metadata, by = "terms")
+mod_health_t1
+
+ps_vst_health <- subset_samples(ps_vst, !is.na(health_status) & timepoint == "T3")
+metadata <- as(sample_data(ps_vst_health), "data.frame") 
+mod_health_t3 <- adonis2(phyloseq::distance(ps_vst_health, method="bray") ~ health_status + sex,
+                         data = metadata, by = "terms")
+mod_health_t3
+
 
 # check again whether it's differences in means or dispersion
 mod <- betadisper(d = phyloseq::distance(ps_vst_health, method="bray"), group = metadata$health_status)
