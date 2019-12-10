@@ -1,5 +1,11 @@
-Analysis pipeline
------------------
+R code for ‘Early sexual dimorphism in the developing gut microbiome of northern elephant seals’
+------------------------------------------------------------------------------------------------
+
+Stoffel, M.A., Acevedo-Whitehouse, K., Nami Morales-Durán, Grosser, S.,
+Chakarov. N., Krüger, O., Nichols, H.J., Elorriaga-Verplancken, F.R.,
+Hoffman, J.I.
+
+The analysis is split into the following four parts:
 
 *1\_reads\_to\_ASVs.R* This is the DADA2 pipeline which goes all the way
 from raw reads to amplicon sequence variants (ASVs)
