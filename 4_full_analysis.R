@@ -5,7 +5,7 @@ library(pacman)
 p_load(phyloseq, tidyverse, msa, inbreedR, rptR, lme4, DESeq2, 
        dada2, phangorn, wesanderson, grid, cowplot, readxl, RColorBrewer, 
        blogdown, patchwork, Demerelate, vegan, ecodist, reshape2, microbiome,
-       kableExtra, broom, simpleboot, egg, insight)
+       kableExtra, broom, simpleboot, egg, insight, patchwork)
 # package to calculate R2 
 # devtools::install_github("mastoffel/partR2")
 library(partR2)
@@ -210,12 +210,13 @@ evals <- ps_ord$values$Eigenvalues
 p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", 
                             justDF = TRUE, axes = 1:5)
 
+
 # plot
 p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
     geom_point(size = 3.5, alpha = 0.8, aes(shape = sex, fill = timepoint)) +
     #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
     #theme_martin() +
-    theme_classic() +
+    theme_classic(base_size = 14) +
     scale_shape_manual(values = c(21,24), name = "Sex") +
     scale_fill_manual(values = colpal, name = "Timepoint") +
     coord_fixed(sqrt(evals[2] / evals[1])) +
@@ -226,7 +227,10 @@ p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
     theme(panel.grid = element_blank(),
         axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
-        axis.ticks = element_line(colour = "black", size = 0.3)) +
+        axis.ticks = element_line(colour = "black", size = 0.3),
+        legend.key.width = unit(0,  unit = "cm"),
+        legend.spacing.x = unit(0.2, unit = "cm"),
+        axis.text = element_text(color = "black")) +
     guides(fill=guide_legend(override.aes=list(shape=21)))
     
 p_ord_plot
@@ -257,14 +261,14 @@ p_health_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
   scale_shape_manual(values = c(21,24), name = "Sex") +
   scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
   scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + #, limits = c(-0.4, 0.4)
-  scale_fill_manual("Health status", values = c(plotcols), labels = c("Healthy", "Not healthy")) +
+  scale_fill_manual("Health status", values = c(plotcols), labels = c("Clinically\nhealthy", "Clinically\nabnormal")) +
   coord_fixed(sqrt(evals[2] / evals[1])) +
   xlab("Axis 1 [28,5%]") +
   ylab("Axis 2 [13,4%]") +
   guides(shape = FALSE,
          fill = guide_legend(override.aes = list(shape = c(22,22))),
          keywidth = 1) +
-  theme_classic() +
+  theme_classic(base_size = 14) +
   theme(panel.grid = element_blank(),
         axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
@@ -294,7 +298,7 @@ p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
   scale_shape_manual(values = c(21,24), name = "Sex") +
   scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
   scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + #, limits = c(-0.4, 0.4)
-  theme_classic() +
+  theme_classic(base_size = 14) +
   scale_color_manual(values = c(plotcols), labels = rep("", 6)) +
   scale_fill_manual(values = c(plotcols), labels = rep("", 6)) +
   coord_fixed(sqrt(evals[2] / evals[1])) +
@@ -310,10 +314,11 @@ p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
         axis.ticks = element_line(colour = "black", size = 0.3),
         legend.position = "bottom") 
  
+#p_full <- plot_grid(p_ord_plot, p_host, p_health_plot, labels = c("A", "B", "C"), ncol = 2)
 
-p_full <- plot_grid(p_ord_plot, p_host, p_health_plot, labels = c("A", "B", "C"), ncol = 2)
-p_full 
-# ggsave("../figures/beta_div3.jpg",plot = p_full, width = 10, height = 8)
+p_full <- (p_ord_plot + p_host) / (p_health_plot + plot_spacer()) +
+  plot_annotation(tag_levels = 'A') 
+ggsave("../figures/beta_div3.jpg",plot = p_full, width = 9, height = 7)
 
 # Ordination outlier plot ======================================================
 
@@ -475,7 +480,7 @@ p_genus <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = 
 p_genus
 # ggsave("../figures/Fig2_core_microbiota_genus_time_trends.jpg", p_genus, width = 7.5, height = 5.5)
 
-# Alpha diversity across time and sex (Figure 1A)  =============================
+# Alpha diversity across time and sex   =============================
 diversity_df <- estimate_richness(ps0, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
                     tibble::rownames_to_column("id") %>% 
                     mutate(id = str_replace(id, "X", "")) %>% 
@@ -519,7 +524,7 @@ p_div2 <- ggplot(diversity_df2, aes(sex, Shannon, by = health_status)) + #colour
   geom_point(position=position_jitterdodge(jitter.width = 0.1), size = 2.3, alpha = 0.8,  
              col = "black", aes(shape = sex, fill = health_status), stroke =0.7) +
   facet_wrap(~timepoint) +
-  scale_fill_manual("Health status", values = c(plotcols), labels = c( "Healthy", "Not healthy")) +
+  scale_fill_manual("Health status", values = c(plotcols), labels = c( "Clinically healthy", "Clinically abnormal")) +
   scale_shape_manual(values = c(21,24), name = "Sex", guide = FALSE) +
   theme_martin(base_family = "Helvetica", highlight_family = "Helvetica") +
   ylab("Shannon diversity\n")+
@@ -538,9 +543,9 @@ p_div2_final <- tag_facet(p_div2, tag_pool = my_tag, open="",close="", x = 1.5, 
 
 # Alpha diversity Figure 4 =====================================================
 p_div_full <- plot_grid(p_div, p_div2_final, labels = c("A", "B"), ncol = 2, 
-                        rel_widths = c(0.45,0.55), scale = 0.95)
+                        rel_widths = c(0.42,0.58), scale = 0.95)
 p_div_full
-# ggsave("../figures/Fig4_diversity2.jpg", p_div_full, width = 8.5, height = 3.1)
+ggsave("../figures/Fig4_diversity2.jpg", p_div_full, width = 8.5, height = 3.1)
 
 
 # Alpha diversity stats ========================================================

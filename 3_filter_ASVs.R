@@ -17,6 +17,11 @@ ps <- ps0 %>%
     subset_taxa(
         ((Family != "Mitochondria") | is.na(Family)) & (Class  != "Chloroplast")
     )
+
+# proportion of data removed 0.003
+prop_removed <- 1 - (sum(as.matrix(otu_table(ps)), na.rm = TRUE) / (sum(as.matrix(otu_table(ps0)), na.rm = TRUE)))
+
+
 #ntaxa(ps)
 
 # Prevalence of each ASV

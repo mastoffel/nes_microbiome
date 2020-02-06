@@ -27,4 +27,13 @@ manipulation of microbiome data.
 
 ### Folders
 
-data contains all the data necessary to run script 4 with all analyses.
+The data folder contains all the data necessary to run script 4 with all
+analyses.
+
+-   health\_data.xlsx contains the health data derived from blood tests
+-   nes\_msats\_cleaned.xls contains the microsatellite genotypes
+-   ps0.RData is a phyloseq object containing all unfiltered microbiome
+    ASVs
+-   ps3.RData is the filtered phyloseq object used for most analyses
+-   sampling\_data\_processed.xlsx contains all the other sampling data,
+    such as date
