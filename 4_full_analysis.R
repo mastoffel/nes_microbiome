@@ -229,7 +229,7 @@ p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
         axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.ticks = element_line(colour = "black", size = 0.3),
         legend.key.width = unit(0,  unit = "cm"),
-        legend.spacing.x = unit(0.2, unit = "cm"),
+        legend.spacing.x = unit(0.17, unit = "cm"),
         axis.text = element_text(color = "black")) +
     guides(fill=guide_legend(override.aes=list(shape=21)))
     
@@ -261,7 +261,7 @@ p_health_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
   scale_shape_manual(values = c(21,24), name = "Sex") +
   scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
   scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + #, limits = c(-0.4, 0.4)
-  scale_fill_manual("Health status", values = c(plotcols), labels = c("Clinically\nhealthy", "Clinically\nabnormal")) +
+  scale_fill_manual("Health status", values = c(plotcols), labels = c("Clinically\nabnormal", "Clinically\nhealthy")) +
   coord_fixed(sqrt(evals[2] / evals[1])) +
   xlab("Axis 1 [28,5%]") +
   ylab("Axis 2 [13,4%]") +
@@ -273,6 +273,7 @@ p_health_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
         axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.ticks = element_line(colour = "black", size = 0.3),
+        axis.text = element_text(color = "black"),
         legend.position = "bottom") 
 p_health_plot
 
@@ -312,6 +313,7 @@ p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
         axis.line.x = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.line.y = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.ticks = element_line(colour = "black", size = 0.3),
+        axis.text = element_text(color = "black"),
         legend.position = "bottom") 
  
 #p_full <- plot_grid(p_ord_plot, p_host, p_health_plot, labels = c("A", "B", "C"), ncol = 2)
@@ -319,7 +321,7 @@ p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
 p_full <- (p_ord_plot + p_host) / (p_health_plot + plot_spacer()) +
   plot_annotation(tag_levels = 'A') 
 ggsave("../figures/beta_div3.jpg",plot = p_full, width = 9, height = 7)
-
+ggsave("../figures/beta_div3.pdf",plot = p_full, width = 9, height = 7)
 # Ordination outlier plot ======================================================
 
 # This plot is to check whether samples with low read abundances
@@ -1235,5 +1237,5 @@ p_rel_by_time <- ggplot(sex_distances, aes(rel, 1-value, fill = sex, shape = sex
         strip.text.y = element_blank(), 
         panel.spacing = unit(1, "lines")) 
 
-# ggsave("../figures/Sup7_relatedness_by_time.jpg", p_rel_by_time , width = 6.2, height = 4)
+ggsave("../figures/Sup7_relatedness_by_time.jpg", p_rel_by_time , width = 6.2, height = 4)
 

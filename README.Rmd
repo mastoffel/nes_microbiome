@@ -19,19 +19,19 @@ This is the DADA2 pipeline which goes all the way from raw reads to
 amplicon sequence variants (ASVs)
 
 _2_prep_data.R_
-This script does some more preprocessing on the ASVs and integrates
+This script does some preprocessing on the ASVs and integrates
 other sampling data, such as health.
 
 _3_filter_ASVs.R_
-Here, we do some more quality control and filtering of the ASVs.
+Quality control and filtering of the ASVs.
 
 _4_full_analysis.R_
 This script contains the code to reproduce all analyses and figures 
 in the paper and the supplementary material.
 
 ### Other scripts
-All other scripts are helper scripts which were used to to quality control
-for the microsatellites, or contain code for plotting or manipulation 
+All other scripts are helper scripts which were used for the quality control
+of the microsatellites, or contain code for plotting or manipulation 
 of microbiome data.
 
 ### Folders
