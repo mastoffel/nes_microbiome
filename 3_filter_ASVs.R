@@ -1,4 +1,8 @@
 # Filter ASVs
+# Input: ps0, a phyloseq object
+# Output: ps3, a filtered phyloseq object
+# Both are stored in data/
+
 library(ggplot2)
 library(tidyverse)
 library(phyloseq)

@@ -1,4 +1,11 @@
 # Prepare sampling and health data and phyloseq objects
+# This script needs:
+# (1) the ASV data (output from 1_reads_to_ASVs), which should be stored in
+# output/primer_clipped_reads_22_220230_pool
+# (2) health data (data/health_data.xls)
+# (3) sampling data (data/sampling_data_processed.xlsx)
+
+# It will produce a phyloseq object names ps0 which includes all the data
 
 library(tidyverse)
 library(readxl)

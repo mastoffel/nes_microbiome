@@ -1,4 +1,13 @@
 # Complete data analysis and plotting for the paper
+# Needs: 
+# (1) Additional script microbiome_composition_funs.R
+# (2) Microbiome ASV table with associated sample data stored in 
+# ps0 (unfiltered) and ps3 (filtered) phyloseq objects. Both are provided
+# in data/ . 
+# (3) Microsatellite genotypes stored in nes_msats_cleaned.xls (folder data/)
+# After installing the required packages everything is ready to run and
+# all results/figures in the main paper and supplementary material can be
+# reproduced
 
 # Packages ----------------------------------------------------------------
 library(pacman)
@@ -33,7 +42,7 @@ otu_table(ps_vst) <- otu_table(getVarianceStabilizedData(nes_dds),
                                taxa_are_rows = TRUE)
 
 
-# Microbiome composition =======================================================
+# Microbiome composition (Figure 1) ============================================
 
 # select phylum, transform to relativ abundancens and filter above 1% for plotting
 nes_phylum <- ps3 %>% 
@@ -44,7 +53,9 @@ nes_phylum <- ps3 %>%
   arrange(desc(Abundance))
 
 # Figure 1, barplot
-p_bar <- ggplot(nes_phylum, aes(individual, Abundance, fill = Phylum)) +
+nes_phylum <- nes_phylum %>% 
+  mutate(Abundance_perc = round(Abundance * 100, digits = 2)) 
+p_bar <- ggplot(nes_phylum, aes(individual, Abundance_perc, fill = Phylum)) +
   facet_grid(timepoint~.)+
   geom_bar(stat = "identity") +
   theme_martin(base_family = "Helvetica") +
@@ -59,15 +70,16 @@ p_bar <- ggplot(nes_phylum, aes(individual, Abundance, fill = Phylum)) +
   #scale_fill_brewer(type = "qual", palette = "Set3") +
   guides(fill = guide_legend(keywidth = 1, keyheight = 1)) +
   theme(legend.text = element_text(size = 11),legend.title = element_text(face="bold")) +
-  ylab("Relative abundance \n") +
+  ylab("Relative abundance % \n") +
   xlab("Individuals") +
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()) +
         #axis.line = element_line(size = 0.5, colour = "black")) +
-  theme(panel.spacing.x = unit(10, "lines"))+
-  theme(strip.text.y = element_text(size=12)) 
+  theme(panel.spacing.y = unit(0.6, "lines"))+
+  theme(strip.text.y = element_text(size=12),
+        axis.text.y = element_text(colour = "black", size = 10)) 
 p_bar
 #ggsave(filename = "../figures/composition_phylum_bar.jpg", p_bar, width = 8, height = 4.5)
-
+#ggsave(filename = "../figures/composition_phylum_bar.pdf", p_bar, width = 8, height = 4.5)
 
 # Calculate summary statistics for ASVs ========================================
 
@@ -76,13 +88,14 @@ asv_per_sample <- rowSums(ps_otu > 0)
 mean(asv_per_sample) # 286
 sd(asv_per_sample) # 67
 
-
 # Define new variable detect samples with low coverage =========================
 
 # mark low abundance samples
 sample_data(ps3)$abundance <- sample_sums(ps3) < 10000
 
 # Core microbiome across individuals within each timepoint =====================
+# Summarised in main paper, but also Supplementary Material
+
 # Calculate relative abundances
 ps_rel <- microbiome::transform(ps3, "compositional")
 
@@ -115,6 +128,7 @@ names(core_across_time) <- all_timepoints
 
 
 # Core microbiome tables =======================================================
+# Supplementary Material
 linesep <- c("") 
 
 # core microbiome table in Supplementary
@@ -185,7 +199,6 @@ p3 <- ggplot(core_T3, aes(ASV_id, Abundance)) +
     coord_flip() +
     ggtitle("Core ASVs at T3")
 #ggsave(filename = "../figures/core_t3.png", width = 5, height = 5)
-# plot
 p1 + p2 + p3
 
 # Transformation and ordination ================================================
@@ -194,10 +207,10 @@ p1 + p2 + p3
 qplot(log(rowSums(otu_table(ps3)))) +
     xlab("Logged counts-per-sample")
 
-# Figure 2: MDS plots ==========================================================
+
+# Beta diversity (Figure 2) ====================================================
 
 # Figure 2: MDS sex / age ======
-# for plotting
 get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
 colpal <- c(  "#0000ff", "#ffb14e", "#ea5f94"  )
 colpal <- wes_palette("Moonrise2", 3, type = "discrete")   
@@ -210,12 +223,8 @@ evals <- ps_ord$values$Eigenvalues
 p_ord_df <- plot_ordination(ps_vst, ps_ord, shape = "sex", color = "timepoint", 
                             justDF = TRUE, axes = 1:5)
 
-
-# plot
 p_ord_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
     geom_point(size = 3.5, alpha = 0.8, aes(shape = sex, fill = timepoint)) +
-    #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
-    #theme_martin() +
     theme_classic(base_size = 14) +
     scale_shape_manual(values = c(21,24), name = "Sex") +
     scale_fill_manual(values = colpal, name = "Timepoint") +
@@ -245,13 +254,9 @@ p_ord_df <- plot_ordination(ps_vst, ps_ord, justDF = TRUE, axes = 1:10) %>%
             mutate(health_status = as.numeric(health_status)) %>% 
             mutate(health_status = ifelse(is.na(health_status), "not_sampled", health_status))
           
-# p_ord_T13 <- plot_ordination(ps_vst_T13, ps_ord, shape = "sex", color = "health_status",
-#                             justDF = TRUE, axes = 1:4) %>% 
-#   mutate(health_status = as.factor(as.numeric(health_status)))
 data_sub <- filter(p_ord_df, timepoint %in% c("T1", "T3")) %>% 
             filter(category != "NA")
 
-#plotcols <- c("#8da0cb", "#fc8d62", "grey90")
 plotcols <- c(wes_palette("Royal1")[2],"#39312F", "grey90")
 p_health_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
   geom_point(size = 3.5, alpha = 0.6, fill = "grey90", stroke = 0.2) +
@@ -259,9 +264,10 @@ p_health_plot <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
              aes(fill=health_status),
              size = 3.5, alpha = 0.8, stroke = 0.5) +
   scale_shape_manual(values = c(21,24), name = "Sex") +
-  scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + # limits = c(-0.45, 0.45))
-  scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + #, limits = c(-0.4, 0.4)
-  scale_fill_manual("Health status", values = c(plotcols), labels = c("Clinically\nabnormal", "Clinically\nhealthy")) +
+  scale_x_continuous(breaks = seq(from = -0.25, to = 0.25, by = 0.25)) + 
+  scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.2)) + 
+  scale_fill_manual("Health status", values = c(plotcols), 
+                    labels = c("Clinically\nabnormal", "Clinically\nhealthy")) +
   coord_fixed(sqrt(evals[2] / evals[1])) +
   xlab("Axis 1 [28,5%]") +
   ylab("Axis 2 [13,4%]") +
@@ -315,17 +321,17 @@ p_host <- ggplot(p_ord_df, aes(Axis.1, Axis.2, shape = sex)) +
         axis.ticks = element_line(colour = "black", size = 0.3),
         axis.text = element_text(color = "black"),
         legend.position = "bottom") 
- 
-#p_full <- plot_grid(p_ord_plot, p_host, p_health_plot, labels = c("A", "B", "C"), ncol = 2)
 
+# plot with patchwork
 p_full <- (p_ord_plot + p_host) / (p_health_plot + plot_spacer()) +
   plot_annotation(tag_levels = 'A') 
-ggsave("../figures/beta_div3.jpg",plot = p_full, width = 9, height = 7)
-ggsave("../figures/beta_div3.pdf",plot = p_full, width = 9, height = 7)
+#ggsave("../figures/beta_div3.jpg",plot = p_full, width = 9, height = 7)
+#ggsave("../figures/beta_div3.pdf",plot = p_full, width = 9, height = 7)
+
 # Ordination outlier plot ======================================================
 
 # This plot is to check whether samples with low read abundances
-# are large outliers.
+# are large outliers. Not in paper.
 p_ord_plot_outlier <- ggplot(p_ord_df, aes(Axis.1, Axis.2)) +
   geom_point(size = 3, alpha = 0.8, aes(color = abundance)) +
   #geom_point(size = 3, alpha = 0.8, aes( color = individual)) +
@@ -349,7 +355,35 @@ ps_df <- psmelt(ps_rel)
 ps_df <- subset(ps_df, Abundance > 0)
 length(unique(ps_df$OTU))
 
-# Time trends across classes (Supplementary Figure 2) ==========================
+# Time trends across phyla (Supplementary Figure 1) ============================
+
+plot_df <- ps_df %>% 
+  group_by(Sample, Phylum) %>% 
+  summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else dplyr::first(.))) %>% 
+  filter(!is.na(timepoint)) %>% 
+  dplyr::filter(Abundance > 0.0001) %>% 
+  mutate(Abundance = log(Abundance)) 
+
+p_phylum <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, 
+                                 shape = sex, fill = sex)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), size=1, 
+             alpha=0.6, color = "black") +
+  facet_wrap(~Phylum) +
+  scale_y_continuous(breaks = log(c(0.001, 0.010, 0.100, 1.000)), 
+                     labels = c(c("0.001", "0.010", "0.100", "1.000"))) +
+  theme_minimal() +
+  ylab("Relative abundance") +
+  xlab("Timepoint") +
+  scale_shape_manual(values = c(21,24), name = "Sex") +
+  scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
+  guides(fill = guide_legend(),
+         shape = guide_legend())
+
+p_phylum
+# ggsave("../figures/Sup4_phylum_time_trends.jpg", p_phylum, width = 7.5, height = 6.5)
+
+# Time trends across classes (Supplementary Figures 2) =========================
 plot_df <- ps_df %>% 
     group_by(Sample, Class) %>% 
     dplyr::summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else dplyr::first(.))) %>% 
@@ -362,13 +396,14 @@ plot_df <- ps_df %>%
    #mutate(Abundance = log(Abundance + 0.001))
     mutate(Abundance = log(Abundance)) 
 
-p_class <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
+p_class <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, 
+                                shape = sex, fill = sex)) +
     geom_boxplot(alpha = 0.6, outlier.shape = NA) +
-    #geom_jitter(size = 2.7, alpha = 0.6,  col = "black", aes(shape = sex, fill = "grey"), width = 0.3, stroke =0.7)
-    geom_point(position=position_jitterdodge(jitter.width = 0.1), size=1, alpha=0.6, color = "black") +
-   # geom_jitter(alpha=0.3, width = 0.1, aes(by = sex)) +
+    geom_point(position=position_jitterdodge(jitter.width = 0.1), size=1, 
+               alpha=0.6, color = "black") +
     facet_wrap(~Class) +
-    scale_y_continuous(breaks = log(c(0.001, 0.010, 0.100, 1.000)), labels = c(c("0.001", "0.010", "0.100", "1.000"))) +
+    scale_y_continuous(breaks = log(c(0.001, 0.010, 0.100, 1.000)), 
+                       labels = c(c("0.001", "0.010", "0.100", "1.000"))) +
     theme_minimal() +
     ylab("Relative abundance") +
     xlab("Timepoint") +
@@ -381,37 +416,6 @@ p_class
 
 #ggsave("../figures/Fig2_classes_time_trends.jpg", p_class, width = 7.5, height = 6.5)
 #ggsave("../figures/Sup3_classes_time_trends_full.jpg", p_class, width = 9.7, height = 7.5)
-
-
-# Time trends across phyla (Supplementary Figure 1) ============================
-
-plot_df <- ps_df %>% 
-    group_by(Sample, Phylum) %>% 
-    summarise_all(funs(if(is.numeric(.)) sum(., na.rm = TRUE) else dplyr::first(.))) %>% 
-    filter(!is.na(timepoint)) %>% 
-    dplyr::filter(Abundance > 0.0001) %>% 
-    mutate(Abundance = log(Abundance)) 
-    # filter(Phylum %in% c("Actinobacteria", "Bacteriodetes", "Deferribacteres", "Firmicutes", "Fusobacteria",
-    #                      "Proteobacteria", "Spirochaetae", "Tenericutes")) # %>% 
-   # mutate(Abundance = log(Abundance + 0.001)) 
-
-p_phylum <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
-    geom_boxplot(alpha = 0.6, outlier.shape = NA) +
-    #geom_jitter(size = 2.7, alpha = 0.6,  col = "black", aes(shape = sex, fill = "grey"), width = 0.3, stroke =0.7)
-    geom_point(position=position_jitterdodge(jitter.width = 0.1), size=1, alpha=0.6, color = "black") +
-    # geom_jitter(alpha=0.3, width = 0.1, aes(by = sex)) +
-    facet_wrap(~Phylum) +
-    scale_y_continuous(breaks = log(c(0.001, 0.010, 0.100, 1.000)), labels = c(c("0.001", "0.010", "0.100", "1.000"))) +
-    theme_minimal() +
-    ylab("Relative abundance") +
-    xlab("Timepoint") +
-    scale_shape_manual(values = c(21,24), name = "Sex") +
-    scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
-    guides(fill = guide_legend(),
-        shape = guide_legend())
-
-p_phylum
-# ggsave("../figures/Sup4_phylum_time_trends.jpg", p_phylum, width = 7.5, height = 6.5)
 
 # Time trends across orders (Supplementary Figure 3) ===========================
 plot_df <- ps_df %>% 
@@ -427,13 +431,14 @@ plot_df <- ps_df %>%
         "Pseudomonadales", "Rhodospirillaleles", "Selenomonadales", "Spirochaetales")) %>%
     mutate(Abundance = log(Abundance)) 
 
-p_order <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
+p_order <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, 
+                                shape = sex, fill = sex)) +
     geom_boxplot(alpha = 0.6, outlier.shape = NA) +
-    #geom_jitter(size = 2.7, alpha = 0.6,  col = "black", aes(shape = sex, fill = "grey"), width = 0.3, stroke =0.7)
-    geom_point(position=position_jitterdodge(jitter.width = 0.1), size=1, alpha=0.6, color = "black") +
-    # geom_jitter(alpha=0.3, width = 0.1, aes(by = sex)) +
+    geom_point(position=position_jitterdodge(jitter.width = 0.1), size=1, 
+               alpha=0.6, color = "black") +
     facet_wrap(~Order) +
-    scale_y_continuous(breaks = log(c(0.001, 0.010, 0.100, 1.000)), labels = c(c("0.001", "0.010", "0.100", "1.000"))) +
+    scale_y_continuous(breaks = log(c(0.001, 0.010, 0.100, 1.000)), 
+                       labels = c(c("0.001", "0.010", "0.100", "1.000"))) +
     theme_minimal() +
     ylab("Relative abundance") +
     xlab("Timepoint") +
@@ -447,9 +452,7 @@ p_order <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = 
 p_order
 # ggsave("../figures/Sup5_order_time_trends.jpg",p_order, width = 8.5, height = 7.5)
 
-
 # Time trends across genera (not in supplementary)   ===========================
-
 # get top 10 core microbiota across all three timepoints
 top10 <- as.character(unlist(map(core_across_time, function(x) x$Genus[1:10])))
 top10 <- unique(top10)
@@ -464,13 +467,14 @@ plot_df <- ps_df %>%
     dplyr::filter(!is.na(Genus))
     #mutate(Abundance = sqrt(Abundance)) 
 
-p_genus <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = sex, fill = sex)) +
+p_genus <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, 
+                                shape = sex, fill = sex)) +
     geom_boxplot(alpha = 0.6, outlier.shape = NA) +
-    #geom_jitter(size = 2.7, alpha = 0.6,  col = "black", aes(shape = sex, fill = "grey"), width = 0.3, stroke =0.7)
-    geom_point(position=position_jitterdodge(jitter.width = 0.1), size=1, alpha=0.6, color = "black") +
-    # geom_jitter(alpha=0.3, width = 0.1, aes(by = sex)) +
+    geom_point(position=position_jitterdodge(jitter.width = 0.1), size=1, 
+               alpha=0.6, color = "black") +
     facet_wrap(~Genus) +
-    scale_y_continuous(breaks = log(c(0.001, 0.010, 0.100, 1.000)), labels = c(c("0.001", "0.010", "0.100", "1.000"))) +
+    scale_y_continuous(breaks = log(c(0.001, 0.010, 0.100, 1.000)), 
+                       labels = c(c("0.001", "0.010", "0.100", "1.000"))) +
     theme_minimal() +
     ylab("Relative abundance") +
     xlab("Timepoint") +
@@ -482,8 +486,10 @@ p_genus <- ggplot(plot_df , aes(x = timepoint, y = Abundance, by = sex, shape = 
 p_genus
 # ggsave("../figures/Fig2_core_microbiota_genus_time_trends.jpg", p_genus, width = 7.5, height = 5.5)
 
-# Alpha diversity across time and sex   =============================
-diversity_df <- estimate_richness(ps0, measures = c("Shannon", "Simpson", "InvSimpson", "Observed", "Fisher")) %>% 
+# Alpha diversity across time and sex (Figure 3A)  ==============================
+diversity_df <- estimate_richness(ps0, measures = c("Shannon", "Simpson", 
+                                                    "InvSimpson", "Observed", 
+                                                    "Fisher")) %>% 
                     tibble::rownames_to_column("id") %>% 
                     mutate(id = str_replace(id, "X", "")) %>% 
                     left_join(as_tibble(sample_data(ps0)), by = "id")
@@ -508,25 +514,25 @@ p_div <- ggplot(diversity_df, aes(timepoint, Shannon, by = sex)) + #colour = sex
           axis.text = element_text(colour = "black"),
           axis.line = element_line(colour = "black", size = 0.3, linetype = 1),
           axis.ticks = element_line(colour = "black", size = 0.3, linetype = 1),
-          plot.margin = margin(t = 25)) # plot.margin = margin(t = 25)
-    #scale_x_discrete(labels = stri_unescape_unicode("a\\u0105!\\u0032\\n")) 
+          plot.margin = margin(t = 25)) 
 p_div
 # ggsave("../figures/Fig4_diversity.jpg", p_div, width = 4.5, height = 2.9)
 
-# Alpha diversity for health and non-healthy individuals (Figure 1B)  ==========
+# Alpha diversity for health and non-healthy individuals (Figure 3B)  ==========
 plotcols <- c("#39312F", wes_palette("Royal1")[2])
-diversity_df2 <- diversity_df %>% filter(!is.na(health_status)) %>%  # "Shannon", "Simpson", "InvSimpson", "Observed", "Fisher"
+diversity_df2 <- diversity_df %>% filter(!is.na(health_status)) %>%  
                   mutate(health_status = ifelse(health_status == 1, 0, 1)) %>% 
                   mutate(health_status = as.factor(health_status))
 
-
 my_tag <- c("T1", "T3")
-p_div2 <- ggplot(diversity_df2, aes(sex, Shannon, by = health_status)) + #colour = sex
+p_div2 <- ggplot(diversity_df2, aes(sex, Shannon, by = health_status)) + 
   geom_boxplot(alpha = 0.4, outlier.shape = NA, aes(fill = health_status)) + 
-  geom_point(position=position_jitterdodge(jitter.width = 0.1), size = 2.3, alpha = 0.8,  
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), size = 2.3, 
+             alpha = 0.8,  
              col = "black", aes(shape = sex, fill = health_status), stroke =0.7) +
   facet_wrap(~timepoint) +
-  scale_fill_manual("Health status", values = c(plotcols), labels = c( "Clinically healthy", "Clinically abnormal")) +
+  scale_fill_manual("Health status", values = c(plotcols), 
+                    labels = c( "Clinically healthy", "Clinically abnormal")) +
   scale_shape_manual(values = c(21,24), name = "Sex", guide = FALSE) +
   theme_martin(base_family = "Helvetica", highlight_family = "Helvetica") +
   ylab("Shannon diversity\n")+
@@ -541,18 +547,18 @@ p_div2 <- ggplot(diversity_df2, aes(sex, Shannon, by = health_status)) + #colour
         axis.line = element_line(colour = "black", size = 0.3, linetype = 1),
         axis.ticks = element_line(colour = "black", size = 0.3, linetype = 1),
         plot.margin = margin(t = 25)) 
-p_div2_final <- tag_facet(p_div2, tag_pool = my_tag, open="",close="", x = 1.5, y=5, fontface = 1)
+p_div2_final <- tag_facet(p_div2, tag_pool = my_tag, open="",close="", x = 1.5, 
+                          y=5, fontface = 1)
 
 # Alpha diversity Figure 4 =====================================================
 p_div_full <- plot_grid(p_div, p_div2_final, labels = c("A", "B"), ncol = 2, 
                         rel_widths = c(0.42,0.58), scale = 0.95)
 p_div_full
-ggsave("../figures/Fig4_diversity2.jpg", p_div_full, width = 8.5, height = 3.1)
-
+#ggsave("../figures/Fig4_diversity2.jpg", p_div_full, width = 8.5, height = 3.1)
+#ggsave("../figures/Fig4_diversity2.pdf", p_div_full, width = 8.5, height = 3.1)
 
 # Alpha diversity stats ========================================================
 
-####### check partR2 package here ###########
 # sex, time point and host ID (individual)
 div_mod <- lmer(Shannon ~ sex + timepoint + (1|individual), data = diversity_df)
 summary(div_mod)
@@ -584,27 +590,24 @@ boot_div_mod2 <- confint(div_mod2, method = c("boot"), nsim = 1000)
 
 R2 <- function(mod) {
   var_comps <- insight::get_variance(mod)
-  R2 <- var_comps$var.fixed / (var_comps$var.fixed + var_comps$var.residual + 0) # 0 variance in random effect
+  R2 <- var_comps$var.fixed / (var_comps$var.fixed + var_comps$var.residual + 0) 
 }
 
 R2s <- bootMer(div_mod2, R2, nsim = 1000, type = "parametric")
 # CI
 quantile(R2s$t, probs = c(0.025, 0.975))
-#partR2(div_mod2, partvars = c("sex", "timepoint", "health_status"))
-
 
 # Beta diversity stats =========================================================
 
 # all permanova models based on variance-stabilised data
-
 # overall effects 
 metadata <- as(sample_data(ps_vst), "data.frame")
 mod_full <- adonis2(phyloseq::distance(ps_vst, method="bray") ~ timepoint + sex + individual,
     data = metadata, by = "terms", strata = "individual") # "terms"
 mod_full
 
-# sex effect at T1, T2 and T3 (check that repeated samples didn't effect sex effect) ======
-#
+# sex effects at T1, T2 and T3  ================================================
+
 sex_eff <- function(tpoint) {
   ps_vst_t <- prune_samples( sample_data(ps_vst)$timepoint == tpoint, ps_vst)
   metadata_t <- as(sample_data(ps_vst_t), "data.frame")
@@ -631,11 +634,13 @@ mod_rpt <- adonis(phyloseq::distance(ps_vst, method="bray") ~  sex + individual,
 
 # Are we seeing differences in group means of their dispersion? To check this,
 # we use betadisper (looks like there is no difference in dispersion)
-mod <- betadisper(d = phyloseq::distance(ps_vst, method="bray"), group = metadata$sex)
+mod <- betadisper(d = phyloseq::distance(ps_vst, method="bray"), 
+                  group = metadata$sex)
 anova(mod) # parametric anova
 TukeyHSD(mod) # Tukey Honest Significant Difference Method
 permutest(mod) # Permutation test
-mod <- betadisper(d = phyloseq::distance(ps_vst, method="bray"), group = metadata$timepoint)
+mod <- betadisper(d = phyloseq::distance(ps_vst, method="bray"), 
+                  group = metadata$timepoint)
 anova(mod)
 TukeyHSD(mod)
 permutest(mod)
@@ -674,7 +679,8 @@ TukeyHSD(mod) # Tukey Honest Significant Difference Method
 permutest(mod) # Permutation test
 
 
-# ///experimental/// repeatability for distance matrices -----------------------------
+# ///experimental/// repeatability for distance matrices -----------------------
+# not in paper
 metadata <- as(sample_data(ps_vst), "data.frame")
 mod_ind <- adonis(phyloseq::distance(ps_vst, method="bray") ~    individual, #timepoint + sex +
     data = metadata) # ,  strata = metadata$sex
@@ -697,9 +703,8 @@ CI <- 0.95
 rpt_CI <- rpt_res + c(1,-1) * qt((1-CI)/2,k-1)*se 
 
 
-
 # Which ASVs are differentially abundant among sexes and across time? ==========
-# We are using deseq2 to test that.
+# See Supplementary Material 2 – Differential abundances of specific taxa
 
 # Differential abundance modeling (1): Across time, per sex ====================
 
@@ -719,7 +724,8 @@ run_deseq_per_sex <- function(sex){
         res <- results(deseq_analysis_object, cooksCutoff = FALSE, contrast)
         res <- res[order(res$padj, na.last=NA), ]
         sigtab <- res[which(res$padj < alpha), ]
-        sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(ps3)[rownames(sigtab), ], "matrix"))
+        sigtab <- cbind(as(sigtab, "data.frame"), 
+                        as(tax_table(ps3)[rownames(sigtab), ], "matrix"))
         sigtab <- as_tibble(sigtab)
         sigtab$comparison <- paste0(contrast[2], "vs" , contrast[3])
         sigtab
@@ -754,23 +760,6 @@ get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
 set.seed(2049) # 5 / 559 / 1053
 plotcols <- sample(c(get_colors("Paired"), "grey", "black", "white"))
 
-# sort colors
-# "#A6CEE3" #lightblue
-    # "#FB9A99" #lightred
-    # "#B2DF8A" #lightgreen
-    # "#B15928" #brown
-    # "#6A3D9A" #purple
-    # "#33A02C" #green
-    # "#FF7F00" #orange
-    # "#CAB2D6" #lightpurple
-# "#E31A1C" #red
-    # "#FFFF99" #yellow
-    # "#FDBF6F" #lightorange
-    # "#1F78B4" #blue
-    # "black"
-# "grey"
-    # "white"
-
 # make a color table
 taxa_classes <- as.character(rev(levels(all_sigtabs_plot$Class)))
 taxa_colors <- c("#1F78B4", "#FF7F00", "lightgrey", "#B15928", "#CAB2D6", "#6A3D9A",
@@ -789,22 +778,18 @@ dat_text <- data.frame(
 wrap_labels <- c(FT2vsT1 = "T1 => T2", FT3vsT2 = "T2 => T3", MT2vsT1 = "T1 => T2", MT3vsT2 = "T2 => T3")
 
 p_diff_time <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) + 
-    #geom_point(size = 3) + 
     geom_point(size=3, alpha = 0.7, shape = 21, colour = "black", lwd = 0.1, aes(fill=Class)) + 
     theme_minimal() +
     facet_wrap(~combination, labeller = labeller(combination = wrap_labels)) +
     scale_fill_manual(values = taxa_colors) +
-    # limits = unique(rev(all_sigtabs$Family))
     scale_y_continuous(breaks = seq(from = -30, to = 30, by = 10), limits = c(-35, 35)) +
     geom_hline(yintercept = 0.0, alpha = 0.5, linetype = 2) +
-    #annotate("text", x = 10, y = 40, label = "\u2642", size = 20, lwd = 3, color = "darkgrey") +
     coord_flip() +
     ylab(expression(log[2]~fold~change)) +
     theme(panel.grid.minor = element_blank(),
         axis.text.y = element_text(size = 8),
         axis.title.y = element_text(size = 14),
         axis.title.x = element_text(size = 15),
-       # legend.position = c(0.37, -0.18),
         plot.margin = margin(b = 5, r = 10, l = 5),
         legend.text = element_text(size = 13),
         legend.title = element_text(size = 15),
@@ -813,10 +798,8 @@ p_diff_time <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) +
     ) +
     guides(fill=guide_legend(
         reverse = TRUE,
-        #title.position = "left",
         keywidth=0.1,
         keyheight=0.1,
-       # nrow = 5,
         default.unit="inch")) 
 
 p_diff_time_final <- ggdraw(p_diff_time) + 
@@ -897,26 +880,20 @@ get_colors <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
 
 # create labeller function
 wrap_labels <- c(T1FvsT1M = "T1: F vs. M", T2FvsT2M = "T2: F vs. M", T3FvsT3M = "T3: F vs. M")
-#levels(all_sigtabs_plot$Class)
 
-# plot
 p_diff_sex <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) + 
-    #geom_point(size = 3) + 
     geom_point(size=3, alpha = 0.7, shape = 21, colour = "black", lwd = 0.1, aes(fill=Class)) + 
     theme_minimal() +
     facet_wrap(~combination, labeller = labeller(combination = wrap_labels)) + #, 
     scale_fill_manual(values = taxa_colors) +
-    # limits = unique(rev(all_sigtabs$Family))
     scale_y_continuous(breaks = seq(from = -30, to = 30, by = 10), limits = c(-35, 35)) +
     geom_hline(yintercept = 0.0, alpha = 0.5, linetype = 2) +
-    #annotate("text", x = 10, y = 40, label = "\u2642", size = 20, lwd = 3, color = "darkgrey") +
     coord_flip() +
     ylab(expression(log[2]~fold~change)) +
     theme(panel.grid.minor = element_blank(),
         axis.text.y = element_text(size = 10),
         axis.title.y = element_text(size = 14),
         axis.title.x = element_text(size = 15),
-        # legend.position = c(0.37, -0.18),
         plot.margin = margin(b = 5, r = 10, l = 5),
         legend.text = element_text(size = 13),
         legend.title = element_text(size = 15),
@@ -924,11 +901,9 @@ p_diff_sex <- ggplot(all_sigtabs_plot, aes(x=Family, y=log2FoldChange)) +
         panel.spacing = unit(1, "lines")
     ) +
     guides(fill=guide_legend(
-        #title.position = "left",
         reverse = TRUE,
         keywidth=0.1,
         keyheight=0.1,
-        # nrow = 5,
         default.unit="inch")) 
 p_diff_sex
 # ggsave("../figures/timepoint_diff_abund_sex.jpg", p_diff_sex, width = 11, height = 5)
@@ -950,8 +925,6 @@ all_sigtabs %>%
     arrange(comparison, desc(n)) %>% 
     mutate(n_prop = n / sum(n)) %>% 
     print(n = Inf)
-
-
 
 # Microbiome and genetic relatedness ===========================================
 
@@ -1050,7 +1023,8 @@ p_rel <- ggplot(sex_distances , aes(rel, 1-value)) +
                panel.spacing = unit(2, "lines")) 
            
 p_rel
-# ggsave("../figures/Fig5_relatedness.jpg", p_rel, width = 7, height = 3)
+ggsave("../figures/Fig5_relatedness.jpg", p_rel, width = 7, height = 3)
+ggsave("../figures/Fig5_relatedness.pdf", p_rel, width = 7, height = 3)
 
 create_distmat <- function(dist_df, sample_var1, sample_var2, value_var) {
     unique_ids <- unique(unlist(dist_df[c(sample_var1, sample_var2)]))
@@ -1122,15 +1096,8 @@ create_distmat <- function(dist_df, sample_var1, sample_var2, value_var) {
 
 calc_cor_rel_mic <- function(topx, ps3, sex) {
     
-    # find most abundant taxa
-    # ps_rel <- transform_sample_counts(ps3, function(x) log(x))
-    # topXX <- names(sort(taxa_sums(ps_rel), decreasing = TRUE))[1:topx]
-    # ps_topXXX <- prune_taxa(topXX, ps3)
-    
     # merge samples coming from one individual
-    #ps_merged <- subset_samples(ps3, sex == "M")
     ps_merged <- merge_samples(ps3, "individual", fun = mean)
-    # ps_merged <- subset_taxa(ps_merged, Order %in% c("Bacteroidales", "Clostridiales"))
     # convert to deseq
     ps_merged_dds <- phyloseq_to_deseq2(ps_merged , ~1) # here ps_merged
     # estimate size factors with not including 0 in geometric mean calc
@@ -1138,7 +1105,8 @@ calc_cor_rel_mic <- function(topx, ps3, sex) {
         estimateDispersions(fitType = "local")
     # create new phyloseq object with variance stabilised ASV table
     ps_merged_vst <- ps3
-    otu_table(ps_merged_vst) <- otu_table(getVarianceStabilizedData(ps_merged_dds), taxa_are_rows = TRUE)
+    otu_table(ps_merged_vst) <- otu_table(getVarianceStabilizedData(ps_merged_dds), 
+                                          taxa_are_rows = TRUE)
     
     # subset Males
     logi_sex <- sample_data(ps_merged_vst)$sex == sex
@@ -1158,9 +1126,9 @@ calc_cor_rel_mic <- function(topx, ps3, sex) {
                             mutate(ind1 = str_replace(ind1, "T3", "")) %>% 
                             mutate(ind2 = str_replace(ind2, "T3", "")) 
     
-    both_dist_df <- inner_join(nes_mic_dist_df, nes_rel_df, by = c("ind1" = "ind1", "ind2" = "ind2")) %>% 
+    both_dist_df <- inner_join(nes_mic_dist_df, nes_rel_df, 
+                               by = c("ind1" = "ind1", "ind2" = "ind2")) %>% 
                         mutate(rel_classes = cut(rel, breaks = quantile(rel, probs = seq(0, 1, 0.15))))
-    
     
     distmat_microbes <- as.dist(1 - create_distmat(both_dist_df, "ind1", "ind2", "value"))
     distmat_msats <- as.dist(create_distmat(both_dist_df, "ind1", "ind2", "rel"))
@@ -1170,37 +1138,39 @@ calc_cor_rel_mic <- function(topx, ps3, sex) {
     out <- data.frame(t(mantel_test), "topX" = topx)
 }
 
-## takes some time
+## takes some time, so object has been saved 
 #out_f <- map_df(seq(from = 4, to = 1063, by = 2), calc_cor_rel_mic, ps3, "F")
 #out_m <- map_df(seq(from = 4, to = 1063, by = 2), calc_cor_rel_mic, ps3, "M")
 #mantel_subset_df <- rbind(out_f, out_m) %>% 
 #                mutate(sex = c(rep("F", nrow(.)/2 ), rep("M", nrow(.)/2)))
 
 # this analysis takes time, so load pre-saved data
-load("output/mantel_subset_test_final.RData")
 #save(mantel_subset_df, file = "output/mantel_subset_test_final.RData")
-p_rel_sub <- ggplot(mantel_subset_df, aes(topX, mantelr, fill = sex, shape = sex, color = sex, by = sex)) +
-    geom_pointrange(aes(ymin = llim.2.5., ymax = ulim.97.5.), fatten = 15, size = 0.1, alpha = 0.8) +
+load("output/mantel_subset_test_final.RData")
+
+p_rel_sub <- ggplot(mantel_subset_df, aes(topX, mantelr, fill = sex, 
+                                          shape = sex, color = sex, by = sex)) +
+    geom_pointrange(aes(ymin = llim.2.5., ymax = ulim.97.5.), fatten = 15, 
+                    size = 0.1, alpha = 0.8) +
     theme_minimal() +
     ylab("Mantel r\n") +
     xlab("\nNumber of most abundant bacterial taxa") +
     scale_shape_manual(values = c(21,24), name = "Sex") +
     scale_color_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
     scale_fill_manual(values = c("#046C9A", "#D69C4E"), name = "Sex") +
-    scale_x_continuous(breaks = c(2, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1064)) +
+    scale_x_continuous(breaks = c(2, 100, 200, 300, 400, 500, 600, 
+                                  700, 800, 900, 1064)) +
     theme(panel.grid = element_blank(),
           axis.line = element_line(colour = "black", size = 0.3),
           axis.text = element_text(colour = 'black'))
 p_rel_sub
 # ggsave("../figures/Fig6_relatedness_subset.jpg", p_rel_sub, width = 4.8, height = 3)
-
-
+ggsave("../figures/Fig6_relatedness_subset.pdf", p_rel_sub, width = 4.8, height = 3)
 
 # create dataframe for each timepoint per sex and combine for plotting ---------
 
 get_dist_df2 <- function(sub_timepoint, sub_sex, ps){
     # subset Males
-    #  ps_merged_vst_sub  <- subset_samples(ps, (sex == sub_sex))
     ps_merged_vst_sub <- prune_samples((sample_data(ps)$sex == sub_sex) & 
                                        (sample_data(ps)$timepoint == sub_timepoint) , ps)
     # calculate bray curtis dissimilarity
@@ -1214,7 +1184,6 @@ get_dist_df2 <- function(sub_timepoint, sub_sex, ps){
     both_dist_df <- inner_join(nes_mic_dist_df, nes_rel_df, by = c("ind1" = "ind1", "ind2" = "ind2")) %>%
         mutate(sex = sub_sex) %>% 
         mutate(timepoint = sub_timepoint)
-    # mutate(rel_classes = cut(rel, breaks = quantile(rel, probs = seq(0, 1, 0.15))))
 }
 
 # create data.frame
@@ -1237,5 +1206,5 @@ p_rel_by_time <- ggplot(sex_distances, aes(rel, 1-value, fill = sex, shape = sex
         strip.text.y = element_blank(), 
         panel.spacing = unit(1, "lines")) 
 
-ggsave("../figures/Sup7_relatedness_by_time.jpg", p_rel_by_time , width = 6.2, height = 4)
+#ggsave("../figures/Sup7_relatedness_by_time.jpg", p_rel_by_time , width = 6.2, height = 4)
 

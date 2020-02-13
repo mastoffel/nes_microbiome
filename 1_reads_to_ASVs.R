@@ -1,7 +1,9 @@
-# DADA2 pipeline to go from paired-end fastq files 
-# to an amplicon sequence variant (ASV) table
-# pipeline starts from reads where the primers and adapters have been removed
-# from the raw reads
+# DADA2 pipeline to go from Illumina MiSeq paired-end fastq files 
+# to an amplicon sequence variant (ASV) table.
+# Pipeline starts from reads where the primers and adapters have been removed
+# from the raw reads.
+# Raw read data are available in the European Nucleotide Archive (ENA) 
+# under study accession PRJEB36555.
 
 library(dplyr)
 library(dada2)
